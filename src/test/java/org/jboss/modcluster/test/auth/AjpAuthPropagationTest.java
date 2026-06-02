@@ -6,9 +6,9 @@ import org.jboss.modcluster.test.base.ModClusterTestExtension.TestCluster;
 import org.jboss.modcluster.test.base.SkipModProxyCluster;
 import org.jboss.modcluster.test.utils.HttpClient;
 import org.jboss.modcluster.test.utils.HttpClient.HttpResponse;
+import org.jboss.modcluster.test.utils.TestMode;
 import org.jboss.modcluster.test.utils.TestTimeouts;
 import org.jboss.modcluster.test.utils.WildFlyWorker;
-import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
@@ -36,15 +36,13 @@ import static org.awaitility.Awaitility.await;
  * <p>Uses a direct {@code ProxyPass ajp://} to the worker's AJP port, which is the same
  * protocol path used by IIS/isapi_redirect after Windows authentication.</p>
  */
-@Tag("native")
 @SkipModProxyCluster
 @ExtendWith(ModClusterTestExtension.class)
 public class AjpAuthPropagationTest {
 
     private static final Logger log = LoggerFactory.getLogger(AjpAuthPropagationTest.class);
 
-    private static final int AJP_BASE_PORT = 8019;
-    private static final int AJP_PORT = 8119; // base + worker1 offset (100)
+    private static final int AJP_CUSTOM_PORT = 8019;
     private static final String AJP_SOCKET_BINDING = "ajp-test";
     private static final String AJP_LISTENER = "ajp-test-listener";
 
@@ -57,8 +55,6 @@ public class AjpAuthPropagationTest {
                                                              final HttpClient httpClient) throws Exception {
         AjpAuthConfigurator configurator = new AjpAuthConfigurator();
 
-        configurator.configureBalancerRemoteUser(cluster.getBalancer(), "testuser", AJP_PORT);
-
         cluster.startWorkers(1);
         WildFlyWorker worker = cluster.getWorker1();
 
@@ -66,13 +62,17 @@ public class AjpAuthPropagationTest {
                 new AjpAuthConfigurator.UserEntry("testuser", "gooduser"));
         addAjpListener(worker);
 
+        configurator.configureBalancerRemoteUser(cluster.getBalancer(), "testuser",
+                ajpHost(worker), ajpPort());
+
         File securedWar = SecuredAppBuilder.createSecuredApp();
         worker.deployment().deploy(securedWar);
 
         String url = cluster.getBalancer().getHttpUrl() + "/secured/secured";
-        awaitAjpAvailable(httpClient, url);
+        Map<String, String> authHeaders = basicAuthHeaders("testuser", "password");
+        awaitAjpAvailable(httpClient, url, authHeaders);
 
-        HttpResponse response = httpClient.get(url, basicAuthHeaders("testuser", "password"));
+        HttpResponse response = httpClient.get(url, authHeaders);
 
         log.info("Response: status={}, body={}", response.getStatusCode(), response.getBody());
         assertThat(response.getStatusCode()).isEqualTo(200);
@@ -88,9 +88,6 @@ public class AjpAuthPropagationTest {
                                             final HttpClient httpClient) throws Exception {
         AjpAuthConfigurator configurator = new AjpAuthConfigurator();
 
-        // ProxyPass without Basic auth — no REMOTE_USER in AJP
-        configurator.configureBalancerRemoteUser(cluster.getBalancer(), null, AJP_PORT);
-
         cluster.startWorkers(1);
         WildFlyWorker worker = cluster.getWorker1();
 
@@ -98,11 +95,15 @@ public class AjpAuthPropagationTest {
                 new AjpAuthConfigurator.UserEntry("testuser", "gooduser"));
         addAjpListener(worker);
 
+        // ProxyPass without Basic auth — no REMOTE_USER in AJP
+        configurator.configureBalancerRemoteUser(cluster.getBalancer(), null,
+                ajpHost(worker), ajpPort());
+
         File securedWar = SecuredAppBuilder.createSecuredApp();
         worker.deployment().deploy(securedWar);
 
         String url = cluster.getBalancer().getHttpUrl() + "/secured/secured";
-        awaitAjpAvailable(httpClient, url);
+        awaitAjpAvailable(httpClient, url, null);
 
         HttpResponse response = httpClient.get(url);
 
@@ -119,8 +120,6 @@ public class AjpAuthPropagationTest {
                                                 final HttpClient httpClient) throws Exception {
         AjpAuthConfigurator configurator = new AjpAuthConfigurator();
 
-        configurator.configureBalancerRemoteUser(cluster.getBalancer(), "baduser", AJP_PORT);
-
         cluster.startWorkers(1);
         WildFlyWorker worker = cluster.getWorker1();
 
@@ -129,13 +128,17 @@ public class AjpAuthPropagationTest {
                 new AjpAuthConfigurator.UserEntry("baduser", "badrole"));
         addAjpListener(worker);
 
+        configurator.configureBalancerRemoteUser(cluster.getBalancer(), "baduser",
+                ajpHost(worker), ajpPort());
+
         File securedWar = SecuredAppBuilder.createSecuredApp();
         worker.deployment().deploy(securedWar);
 
         String url = cluster.getBalancer().getHttpUrl() + "/secured/secured";
-        awaitAjpAvailable(httpClient, url);
+        Map<String, String> authHeaders = basicAuthHeaders("baduser", "password");
+        awaitAjpAvailable(httpClient, url, authHeaders);
 
-        HttpResponse response = httpClient.get(url, basicAuthHeaders("baduser", "password"));
+        HttpResponse response = httpClient.get(url, authHeaders);
 
         log.info("Response (wrong role): status={}", response.getStatusCode());
         assertThat(response.getStatusCode()).isEqualTo(403);
@@ -146,7 +149,7 @@ public class AjpAuthPropagationTest {
         Address sbAddr = Address.of("socket-binding-group", "standard-sockets")
                 .and("socket-binding", AJP_SOCKET_BINDING);
         if (!ops.exists(sbAddr)) {
-            worker.undertow().addSocketBinding(AJP_SOCKET_BINDING, AJP_BASE_PORT);
+            worker.undertow().addSocketBinding(AJP_SOCKET_BINDING, AJP_CUSTOM_PORT);
         }
         Address listenerAddr = Address.subsystem("undertow")
                 .and("server", "default-server")
@@ -155,15 +158,25 @@ public class AjpAuthPropagationTest {
             worker.undertow().addAjpListener(AJP_LISTENER, "default-server", AJP_SOCKET_BINDING);
             worker.reload();
         }
-        log.info("AJP listener on port {} ready", AJP_PORT);
+        log.info("AJP listener on port {} ready", ajpPort());
     }
 
-    private void awaitAjpAvailable(HttpClient httpClient, String url) {
+    private static String ajpHost(WildFlyWorker worker) {
+        return TestMode.current().isNative() ? "localhost" : worker.getName();
+    }
+
+    private static int ajpPort() {
+        // Native: custom port + worker1 offset (100). Docker: custom port (no offset).
+        return TestMode.current().isNative() ? AJP_CUSTOM_PORT + 100 : AJP_CUSTOM_PORT;
+    }
+
+    private void awaitAjpAvailable(HttpClient httpClient, String url, Map<String, String> headers) {
         await().atMost(TestTimeouts.CLUSTER_FORMATION)
                 .pollInterval(ofSeconds(2))
                 .ignoreExceptions()
                 .untilAsserted(() -> {
-                    HttpResponse response = httpClient.get(url);
+                    HttpResponse response = headers != null
+                            ? httpClient.get(url, headers) : httpClient.get(url);
                     assertThat(response.getStatusCode()).isLessThan(500);
                 });
         log.info("AJP proxy responding at {}", url);

@@ -293,7 +293,7 @@ String result = worker.executeCli("/subsystem=modcluster:read-resource");
 - **SslWorkerAuthenticationTest** - Mutual SSL authentication
 
 ### Authentication Tests
-- **AjpAuthPropagationTest** - REMOTE_USER propagation via AJP (Elytron EXTERNAL mechanism)
+- **AjpAuthPropagationTest** - REMOTE_USER propagation via AJP (Elytron EXTERNAL mechanism, Docker and native)
 
 ### Load Balancing Tests
 - **LoadBalancingGroupFailoverTest** - Load distribution and group failover

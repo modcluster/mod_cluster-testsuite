@@ -7,7 +7,7 @@ on:
 
 env:
   WILDFLY_VERSION: 39.0.1.Final
-  TEST_CLASS: StickySessionTest,SslFailoverTest,SslCrlTest
+  TEST_CLASS: StickySessionTest,SslFailoverTest,SslCrlTest,AjpAuthPropagationTest
   MOD_PROXY_CLUSTER_REPO: https://github.com/modcluster/mod_proxy_cluster.git
 
 jobs:

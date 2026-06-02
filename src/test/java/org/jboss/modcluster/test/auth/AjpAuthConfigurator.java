@@ -1,6 +1,7 @@
 package org.jboss.modcluster.test.auth;
 
 import org.jboss.dmr.ModelNode;
+import org.jboss.modcluster.test.utils.CommandResult;
 import org.jboss.modcluster.test.utils.WildFlyWorker;
 import org.jboss.modcluster.test.utils.balancer.Balancer;
 import org.slf4j.Logger;
@@ -115,9 +116,15 @@ public class AjpAuthConfigurator {
      * @param username  the username to inject as REMOTE_USER
      * @param ajpPort   the worker's AJP listener port
      */
-    public void configureBalancerRemoteUser(Balancer balancer, String username, int ajpPort)
+    public void configureBalancerRemoteUser(Balancer balancer, String username, String ajpHost, int ajpPort)
             throws Exception {
         StringBuilder conf = new StringBuilder();
+        conf.append("<IfModule !proxy_module>\n");
+        conf.append("    LoadModule proxy_module modules/mod_proxy.so\n");
+        conf.append("</IfModule>\n");
+        conf.append("<IfModule !proxy_ajp_module>\n");
+        conf.append("    LoadModule proxy_ajp_module modules/mod_proxy_ajp.so\n");
+        conf.append("</IfModule>\n");
         conf.append("<IfModule !authn_file_module>\n");
         conf.append("    LoadModule authn_file_module modules/mod_authn_file.so\n");
         conf.append("</IfModule>\n");
@@ -131,8 +138,8 @@ public class AjpAuthConfigurator {
         conf.append("    LoadModule auth_basic_module modules/mod_auth_basic.so\n");
         conf.append("</IfModule>\n\n");
 
-        conf.append("ProxyPass /secured/ ajp://localhost:").append(ajpPort).append("/secured/\n");
-        conf.append("ProxyPassReverse /secured/ ajp://localhost:").append(ajpPort).append("/secured/\n\n");
+        conf.append("ProxyPass /secured/ ajp://").append(ajpHost).append(":").append(ajpPort).append("/secured/\n");
+        conf.append("ProxyPassReverse /secured/ ajp://").append(ajpHost).append(":").append(ajpPort).append("/secured/\n\n");
 
         if (username != null) {
             String htpasswdPath = balancer.getServerHome() + "/conf/test-users.htpasswd";
@@ -144,7 +151,12 @@ public class AjpAuthConfigurator {
             conf.append("    Require valid-user\n");
             conf.append("</Location>\n");
 
-            balancer.execCommand("htpasswd", "-cb", htpasswdPath, username, "password");
+            CommandResult result = balancer.execCommand("htpasswd", "-cb",
+                    htpasswdPath, username, "password");
+            if (!result.isSuccess()) {
+                balancer.execCommand(balancer.getServerHome() + "/bin/htpasswd",
+                        "-cb", htpasswdPath, username, "password");
+            }
         }
 
         Path tempConf = Files.createTempFile("ajp-auth", ".conf");

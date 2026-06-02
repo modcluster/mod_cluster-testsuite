@@ -16,6 +16,8 @@ import org.testcontainers.utility.MountableFile;
 import static org.awaitility.Awaitility.await;
 
 import java.io.IOException;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -82,33 +84,52 @@ class DockerHttpdBalancer extends DockerBalancer {
         }
 
         ContainerUtils.startWithRetry(() -> {
-            container = new GenericContainer<>(DockerImageName.parse(imageName))
+            GenericContainer<?> c = new GenericContainer<>(DockerImageName.parse(imageName))
                     .withNetwork(network)
                     .withNetworkAliases(networkAlias)
-                    .withExposedPorts(HTTP_PORT, HTTPS_PORT, MCMP_PORT)
-                    .withCopyFileToContainer(
-                            MountableFile.forClasspathResource("httpd/mod_proxy_cluster.conf", 0644),
-                            "/usr/local/apache2/conf/extra/mod_proxy_cluster.conf")
-                    .withCommand("/bin/sh", "-c",
-                            // Disable mod_proxy_balancer (conflicts with mod_proxy_cluster),
-                            // replace default Listen 80 with Listen 8080, include our config, and start httpd
-                            "sed -i 's/^LoadModule proxy_balancer_module/#LoadModule proxy_balancer_module/' " +
-                            "/usr/local/apache2/conf/httpd.conf && " +
-                            "sed -i 's/^\\(Listen 80\\)$/#\\1/' /usr/local/apache2/conf/httpd.conf && " +
-                            "echo 'Listen 8080' >> /usr/local/apache2/conf/httpd.conf && " +
-                            "echo 'Include conf/extra/mod_proxy_cluster.conf' >> /usr/local/apache2/conf/httpd.conf && " +
-                            "echo 'ErrorLog /proc/self/fd/2' >> /usr/local/apache2/conf/httpd.conf && " +
-                            "echo 'LogLevel info' >> /usr/local/apache2/conf/httpd.conf && " +
-                            "/usr/local/apache2/bin/httpd -DFOREGROUND")
-                    .waitingFor(Wait.forHttp("/mod_cluster_manager").forPort(MCMP_PORT)
-                            .withStartupTimeout(TestTimeouts.HTTPD_STARTUP))
+                    .withCreateContainerCmdModifier(cmd -> cmd.getHostConfig().withInit(true))
+                    .withExposedPorts(skipModProxyCluster
+                            ? new Integer[]{HTTP_PORT}
+                            : new Integer[]{HTTP_PORT, HTTPS_PORT, MCMP_PORT})
                     .withLogConsumer(outputFrame ->
                             log.info("[HTTPD-{}] {}", networkAlias.toUpperCase(),
                                     outputFrame.getUtf8String().trim()));
 
+            if (skipModProxyCluster) {
+                c.withCommand("/bin/sh", "-c",
+                                "sed -i 's/^\\(Listen 80\\)$/#\\1/' /usr/local/apache2/conf/httpd.conf && " +
+                                "echo 'Listen 8080' >> /usr/local/apache2/conf/httpd.conf && " +
+                                "echo 'PidFile /usr/local/apache2/logs/httpd.pid' >> /usr/local/apache2/conf/httpd.conf && " +
+                                "echo 'IncludeOptional conf/extra/ajp-*.conf' >> /usr/local/apache2/conf/httpd.conf && " +
+                                "echo 'IncludeOptional conf/extra/ssl-*.conf' >> /usr/local/apache2/conf/httpd.conf && " +
+                                "echo 'ErrorLog /proc/self/fd/2' >> /usr/local/apache2/conf/httpd.conf && " +
+                                "echo 'LogLevel info' >> /usr/local/apache2/conf/httpd.conf && " +
+                                "exec /usr/local/apache2/bin/httpd -DFOREGROUND")
+                        .waitingFor(Wait.forListeningPort()
+                                .withStartupTimeout(TestTimeouts.HTTPD_STARTUP));
+            } else {
+                c.withCopyFileToContainer(
+                                MountableFile.forClasspathResource("httpd/mod_proxy_cluster.conf", 0644),
+                                "/usr/local/apache2/conf/extra/mod_proxy_cluster.conf")
+                        .withCommand("/bin/sh", "-c",
+                                "sed -i 's/^LoadModule proxy_balancer_module/#LoadModule proxy_balancer_module/' " +
+                                "/usr/local/apache2/conf/httpd.conf && " +
+                                "sed -i 's/^\\(Listen 80\\)$/#\\1/' /usr/local/apache2/conf/httpd.conf && " +
+                                "echo 'Listen 8080' >> /usr/local/apache2/conf/httpd.conf && " +
+                                "echo 'Include conf/extra/mod_proxy_cluster.conf' >> /usr/local/apache2/conf/httpd.conf && " +
+                                "echo 'ErrorLog /proc/self/fd/2' >> /usr/local/apache2/conf/httpd.conf && " +
+                                "echo 'LogLevel info' >> /usr/local/apache2/conf/httpd.conf && " +
+                                "exec /usr/local/apache2/bin/httpd -DFOREGROUND")
+                        .waitingFor(Wait.forHttp("/mod_cluster_manager").forPort(MCMP_PORT)
+                                .withStartupTimeout(TestTimeouts.HTTPD_STARTUP));
+            }
+
+            container = c;
             container.start();
 
-            mcmpClient = new McmpClient(container.getHost(), container.getMappedPort(MCMP_PORT));
+            if (!skipModProxyCluster) {
+                mcmpClient = new McmpClient(container.getHost(), container.getMappedPort(MCMP_PORT));
+            }
             log.info("Httpd balancer '{}' started on network: {}", networkAlias, network.getId());
         }, () -> {
             if (container != null) {
@@ -319,14 +340,27 @@ class DockerHttpdBalancer extends DockerBalancer {
                 }
             }
         }
-        // Wait for httpd to finish graceful restart by polling the MCMP endpoint
-        await().atMost(Duration.ofSeconds(10))
-                .pollInterval(Duration.ofMillis(500))
-                .ignoreExceptions()
-                .until(() -> {
-                    getMcmpClient().sendInfo();
-                    return true;
-                });
+        if (mcmpClient != null) {
+            await().atMost(Duration.ofSeconds(10))
+                    .pollInterval(Duration.ofMillis(500))
+                    .ignoreExceptions()
+                    .until(() -> {
+                        getMcmpClient().sendInfo();
+                        return true;
+                    });
+        } else {
+            await().atMost(Duration.ofSeconds(10))
+                    .pollInterval(Duration.ofMillis(500))
+                    .ignoreExceptions()
+                    .until(() -> {
+                        HttpURLConnection conn = (HttpURLConnection)
+                                new URL("http://" + container.getHost() + ":"
+                                        + container.getMappedPort(HTTP_PORT) + "/").openConnection();
+                        conn.setConnectTimeout(2000);
+                        conn.getResponseCode();
+                        return true;
+                    });
+        }
         log.info("Httpd balancer reloaded successfully");
     }
 
