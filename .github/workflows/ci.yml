@@ -7,7 +7,7 @@ on:
 
 env:
   WILDFLY_VERSION: 39.0.1.Final
-  TEST_CLASS: StickySessionTest,SslFailoverTest,SslCrlTest,AjpAuthPropagationTest
+  TEST_CLASS: StickySessionTest,SslFailoverTest,SslCrlTest
   MOD_PROXY_CLUSTER_REPO: https://github.com/modcluster/mod_proxy_cluster.git
 
 jobs:
@@ -41,15 +41,25 @@ jobs:
         shell: bash
         run: mvn -B generate-test-resources -Pdownload-wildfly -Dwildfly.version=${{ env.WILDFLY_VERSION }} -DskipTests
 
+      - name: Set test classes
+        id: test-classes
+        shell: bash
+        run: |
+          TESTS="${{ env.TEST_CLASS }}"
+          if [ "${{ matrix.balancer }}" = "httpd" ]; then
+            TESTS="${TESTS},AjpAuthPropagationTest"
+          fi
+          echo "classes=${TESTS}" >> "$GITHUB_OUTPUT"
+
       - name: Run tests (Docker)
         if: runner.os != 'Windows'
         shell: bash
-        run: mvn -B test -Dtest=${{ env.TEST_CLASS }} -DexcludedGroups=none -Dbalancer.type=${{ matrix.balancer }} -Dwildfly.version=${{ env.WILDFLY_VERSION }}
+        run: mvn -B test -Dtest=${{ steps.test-classes.outputs.classes }} -DexcludedGroups=none -Dbalancer.type=${{ matrix.balancer }} -Dwildfly.version=${{ env.WILDFLY_VERSION }}
 
       - name: Run tests (Native)
         if: runner.os == 'Windows'
         shell: bash
-        run: mvn -B test -Pnative -Dtest=${{ env.TEST_CLASS }} -DexcludedGroups=none -Dbalancer.type=${{ matrix.balancer }} -Dwildfly.version=${{ env.WILDFLY_VERSION }}
+        run: mvn -B test -Pnative -Dtest=${{ steps.test-classes.outputs.classes }} -DexcludedGroups=none -Dbalancer.type=${{ matrix.balancer }} -Dwildfly.version=${{ env.WILDFLY_VERSION }}
 
       - name: Publish test results
         uses: mikepenz/action-junit-report@v6
