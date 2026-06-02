@@ -308,6 +308,7 @@
             </activation>
             <properties>
                 <balancer.type>undertow</balancer.type>
+                <test.excluded.groups.balancer>httpd</test.excluded.groups.balancer>
             </properties>
         </profile>
 

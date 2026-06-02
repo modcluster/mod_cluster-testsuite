@@ -9,6 +9,7 @@ import org.jboss.modcluster.test.utils.HttpClient.HttpResponse;
 import org.jboss.modcluster.test.utils.TestMode;
 import org.jboss.modcluster.test.utils.TestTimeouts;
 import org.jboss.modcluster.test.utils.WildFlyWorker;
+import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.slf4j.Logger;
@@ -36,6 +37,7 @@ import static org.awaitility.Awaitility.await;
  * <p>Uses a direct {@code ProxyPass ajp://} to the worker's AJP port, which is the same
  * protocol path used by IIS/isapi_redirect after Windows authentication.</p>
  */
+@Tag("httpd")
 @SkipModProxyCluster
 @ExtendWith(ModClusterTestExtension.class)
 public class AjpAuthPropagationTest {
