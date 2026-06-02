@@ -34,6 +34,9 @@ public class ModClusterTestExtension implements BeforeEachCallback, AfterEachCal
 
         // Create balancer and store BEFORE start — so afterEach can clean up network even if start fails
         Balancer balancer = Balancer.create(balancerType);
+        if (context.getRequiredTestClass().isAnnotationPresent(SkipModProxyCluster.class)) {
+            balancer.setSkipModProxyCluster(true);
+        }
         store.put(BALANCER_KEY, balancer);
         balancer.start();
 

@@ -89,8 +89,6 @@ class NativeHttpdBalancer extends Balancer {
             processManager = new NativeProcessManager("httpd-balancer", command, serverRoot(), null);
             processManager.start();
 
-            boolean skipModProxyCluster = Boolean.getBoolean("httpd.skip.mod_proxy_cluster");
-
             if (skipModProxyCluster) {
                 // Poll HTTP port directly — no MCMP without mod_proxy_cluster
                 try {
@@ -272,7 +270,6 @@ class NativeHttpdBalancer extends Balancer {
             conf.append("</IfModule>\n");
         }
 
-        boolean skipModProxyCluster = Boolean.getBoolean("httpd.skip.mod_proxy_cluster");
         if (!skipModProxyCluster) {
             conf.append("\n# mod_proxy_cluster modules\n");
             Path mpcModules = modulesPath != null ? modulesPath : systemModules;

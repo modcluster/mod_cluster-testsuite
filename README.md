@@ -428,7 +428,6 @@ In practice, always provide a WildFly/EAP ZIP — the fallback images are not pu
 | `httpd.zip.path` | Both | auto-detect in `distributions/` | Path to JBCS httpd ZIP |
 | `httpd.connectors.zip.path` | Native | auto-detect alongside httpd ZIP | Path to JBCS connectors ZIP |
 | `httpd.modules.path` | Native | `httpdHome/modules` | Directory containing mod_proxy_cluster `.so` files |
-| `httpd.skip.mod_proxy_cluster` | Native | `false` | Skip mod_proxy_cluster modules (for direct AJP proxy tests) |
 | `httpd.version` | Docker | `2.4.66` | httpd version for Docker source build |
 | `balancer.httpd.image` | Docker | built automatically | Custom Docker image for httpd balancer |
 | `balancer.undertow.image` | Docker | built from WildFly ZIP | Custom Docker image for Undertow balancer |

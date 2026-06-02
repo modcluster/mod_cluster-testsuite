@@ -3,12 +3,11 @@ package org.jboss.modcluster.test.auth;
 import org.jboss.modcluster.test.apps.SecuredAppBuilder;
 import org.jboss.modcluster.test.base.ModClusterTestExtension;
 import org.jboss.modcluster.test.base.ModClusterTestExtension.TestCluster;
+import org.jboss.modcluster.test.base.SkipModProxyCluster;
 import org.jboss.modcluster.test.utils.HttpClient;
 import org.jboss.modcluster.test.utils.HttpClient.HttpResponse;
 import org.jboss.modcluster.test.utils.TestTimeouts;
 import org.jboss.modcluster.test.utils.WildFlyWorker;
-import org.junit.jupiter.api.AfterAll;
-import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -38,20 +37,11 @@ import static org.awaitility.Awaitility.await;
  * protocol path used by IIS/isapi_redirect after Windows authentication.</p>
  */
 @Tag("native")
+@SkipModProxyCluster
 @ExtendWith(ModClusterTestExtension.class)
 public class AjpAuthPropagationTest {
 
     private static final Logger log = LoggerFactory.getLogger(AjpAuthPropagationTest.class);
-
-    @BeforeAll
-    static void disableModProxyCluster() {
-        System.setProperty("httpd.skip.mod_proxy_cluster", "true");
-    }
-
-    @AfterAll
-    static void restoreModProxyCluster() {
-        System.clearProperty("httpd.skip.mod_proxy_cluster");
-    }
 
     private static final int AJP_BASE_PORT = 8019;
     private static final int AJP_PORT = 8119; // base + worker1 offset (100)

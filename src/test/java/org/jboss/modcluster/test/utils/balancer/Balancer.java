@@ -37,6 +37,22 @@ public abstract class Balancer {
     /** Time a broken node stays registered before removal (milliseconds). */
     public static final int BROKEN_NODE_TIMEOUT_MS = 3000;
 
+    // ---- httpd-specific configuration ----
+    // These fields are only read by httpd balancer implementations
+    // (NativeHttpdBalancer, DockerHttpdBalancer). Undertow balancers ignore them.
+
+    /**
+     * When {@code true}, httpd starts without mod_proxy_cluster modules loaded.
+     * This allows direct {@code ProxyPass} / {@code mod_proxy_ajp} usage, which
+     * mod_proxy_cluster's global proxy handler would otherwise intercept.
+     * Set via the {@link org.jboss.modcluster.test.base.SkipModProxyCluster} annotation.
+     */
+    protected boolean skipModProxyCluster;
+
+    public void setSkipModProxyCluster(boolean skip) {
+        this.skipModProxyCluster = skip;
+    }
+
     /**
      * Create a balancer for the given type and current test mode.
      *
