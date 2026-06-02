@@ -100,7 +100,7 @@ jobs:
       - name: Run tests
         run: |
           mvn -B test -Pnative \
-            -Dtest=${{ env.TEST_CLASS }} \
+            -Dtest=${{ env.TEST_CLASS }},AjpAuthPropagationTest \
             -DexcludedGroups=none \
             -Dbalancer.type=httpd \
             -Dhttpd.home=/usr \

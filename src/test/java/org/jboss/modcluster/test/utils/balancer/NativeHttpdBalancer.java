@@ -26,6 +26,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.stream.Stream;
+import java.net.HttpURLConnection;
+import java.net.URL;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
 
@@ -87,20 +89,41 @@ class NativeHttpdBalancer extends Balancer {
             processManager = new NativeProcessManager("httpd-balancer", command, serverRoot(), null);
             processManager.start();
 
-            mcmpClient = new McmpClient("localhost", MCMP_PORT);
+            boolean skipModProxyCluster = Boolean.getBoolean("httpd.skip.mod_proxy_cluster");
 
-            // Poll until MCMP endpoint is responsive
-            try {
-                await().atMost(Duration.ofSeconds(30))
-                        .pollInterval(Duration.ofSeconds(1))
-                        .ignoreExceptions()
-                        .until(() -> {
-                            mcmpClient.sendInfo();
-                            return true;
-                        });
-            } catch (Exception timeout) {
-                logHttpdDiagnostics();
-                throw timeout;
+            if (skipModProxyCluster) {
+                // Poll HTTP port directly — no MCMP without mod_proxy_cluster
+                try {
+                    await().atMost(Duration.ofSeconds(30))
+                            .pollInterval(Duration.ofSeconds(1))
+                            .ignoreExceptions()
+                            .until(() -> {
+                                HttpURLConnection conn = (HttpURLConnection)
+                                        new URL("http://localhost:" + HTTP_PORT + "/").openConnection();
+                                conn.setConnectTimeout(2000);
+                                conn.getResponseCode();
+                                return true;
+                            });
+                } catch (Exception timeout) {
+                    logHttpdDiagnostics();
+                    throw timeout;
+                }
+            } else {
+                mcmpClient = new McmpClient("localhost", MCMP_PORT);
+
+                // Poll until MCMP endpoint is responsive
+                try {
+                    await().atMost(Duration.ofSeconds(30))
+                            .pollInterval(Duration.ofSeconds(1))
+                            .ignoreExceptions()
+                            .until(() -> {
+                                mcmpClient.sendInfo();
+                                return true;
+                            });
+                } catch (Exception timeout) {
+                    logHttpdDiagnostics();
+                    throw timeout;
+                }
             }
 
             log.info("Native httpd balancer started at {}", httpdHome);
@@ -238,7 +261,10 @@ class NativeHttpdBalancer extends Balancer {
                 "slotmem_shm_module:mod_slotmem_shm.so",
                 "watchdog_module:mod_watchdog.so",
                 "ssl_module:mod_ssl.so",
-                "socache_shmcb_module:mod_socache_shmcb.so")) {
+                "socache_shmcb_module:mod_socache_shmcb.so",
+                "headers_module:mod_headers.so",
+                "env_module:mod_env.so",
+                "setenvif_module:mod_setenvif.so")) {
             String[] parts = module.split(":");
             Path soFile = systemModules.toAbsolutePath().resolve(parts[1]);
             conf.append("<IfModule !").append(parts[0]).append(">\n");
@@ -246,39 +272,43 @@ class NativeHttpdBalancer extends Balancer {
             conf.append("</IfModule>\n");
         }
 
-        // Load mod_proxy_cluster modules from the modules path (external or system)
-        conf.append("\n# mod_proxy_cluster modules\n");
-        Path mpcModules = modulesPath != null ? modulesPath : systemModules;
-        for (String module : List.of(
-                "manager_module:mod_manager.so",
-                "proxy_cluster_module:mod_proxy_cluster.so",
-                "advertise_module:mod_advertise.so")) {
-            String[] parts = module.split(":");
-            Path soFile = mpcModules.resolve(parts[1]);
-            if (Files.isRegularFile(soFile)) {
-                conf.append("<IfModule !").append(parts[0]).append(">\n");
-                conf.append("    LoadModule ").append(parts[0]).append(" ")
-                        .append(soFile.toAbsolutePath()).append("\n");
-                conf.append("</IfModule>\n");
+        boolean skipModProxyCluster = Boolean.getBoolean("httpd.skip.mod_proxy_cluster");
+        if (!skipModProxyCluster) {
+            conf.append("\n# mod_proxy_cluster modules\n");
+            Path mpcModules = modulesPath != null ? modulesPath : systemModules;
+            for (String module : List.of(
+                    "manager_module:mod_manager.so",
+                    "proxy_cluster_module:mod_proxy_cluster.so",
+                    "advertise_module:mod_advertise.so")) {
+                String[] parts = module.split(":");
+                Path soFile = mpcModules.resolve(parts[1]);
+                if (Files.isRegularFile(soFile)) {
+                    conf.append("<IfModule !").append(parts[0]).append(">\n");
+                    conf.append("    LoadModule ").append(parts[0]).append(" ")
+                            .append(soFile.toAbsolutePath()).append("\n");
+                    conf.append("</IfModule>\n");
+                }
             }
-        }
-        // Optional modules
-        for (String module : List.of(
-                "lbmethod_cluster_module:mod_lbmethod_cluster.so",
-                "cluster_slotmem_module:mod_cluster_slotmem.so")) {
-            String[] parts = module.split(":");
-            Path soFile = mpcModules.resolve(parts[1]);
-            if (Files.isRegularFile(soFile)) {
-                conf.append("<IfModule !").append(parts[0]).append(">\n");
-                conf.append("    LoadModule ").append(parts[0]).append(" ")
-                        .append(soFile.toAbsolutePath()).append("\n");
-                conf.append("</IfModule>\n");
+            for (String module : List.of(
+                    "lbmethod_cluster_module:mod_lbmethod_cluster.so",
+                    "cluster_slotmem_module:mod_cluster_slotmem.so")) {
+                String[] parts = module.split(":");
+                Path soFile = mpcModules.resolve(parts[1]);
+                if (Files.isRegularFile(soFile)) {
+                    conf.append("<IfModule !").append(parts[0]).append(">\n");
+                    conf.append("    LoadModule ").append(parts[0]).append(" ")
+                            .append(soFile.toAbsolutePath()).append("\n");
+                    conf.append("</IfModule>\n");
+                }
             }
         }
 
         conf.append("\n#Listen 80\n");
         conf.append("Listen 8080\n\n");
 
+        // AJP auth config must be included BEFORE conf.d/ so ProxyPass takes
+        // priority over mod_proxy_cluster's handler
+        conf.append("IncludeOptional conf/extra/ajp-*.conf\n");
         // MCMP, VirtualHost, and SSL includes come from conf.d/mod_proxy_cluster.conf
         conf.append("IncludeOptional conf.d/*.conf\n");
 
@@ -286,8 +316,9 @@ class NativeHttpdBalancer extends Balancer {
         Files.writeString(confFile, conf.toString());
         log.info("Generated httpd.conf at {}", confFile);
 
-        // Copy mod_proxy_cluster.conf template to conf.d/
-        copyModProxyClusterConf();
+        if (!skipModProxyCluster) {
+            copyModProxyClusterConf();
+        }
     }
 
     /**
@@ -599,13 +630,26 @@ class NativeHttpdBalancer extends Balancer {
                         result.getExitCode(), result.getStderr());
             }
         }
-        await().atMost(Duration.ofSeconds(10))
-                .pollInterval(Duration.ofMillis(500))
-                .ignoreExceptions()
-                .until(() -> {
-                    mcmpClient.sendInfo();
-                    return true;
-                });
+        if (mcmpClient != null) {
+            await().atMost(Duration.ofSeconds(10))
+                    .pollInterval(Duration.ofMillis(500))
+                    .ignoreExceptions()
+                    .until(() -> {
+                        mcmpClient.sendInfo();
+                        return true;
+                    });
+        } else {
+            await().atMost(Duration.ofSeconds(10))
+                    .pollInterval(Duration.ofMillis(500))
+                    .ignoreExceptions()
+                    .until(() -> {
+                        java.net.HttpURLConnection conn = (java.net.HttpURLConnection)
+                                new java.net.URL("http://localhost:" + HTTP_PORT + "/").openConnection();
+                        conn.setConnectTimeout(2000);
+                        conn.getResponseCode();
+                        return true;
+                    });
+        }
         log.info("httpd balancer reloaded successfully");
     }
 

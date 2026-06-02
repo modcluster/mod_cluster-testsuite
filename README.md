@@ -49,6 +49,9 @@ src/test/java/org/jboss/modcluster/test/
 │   └── LoadMetricsTest.java
 ├── session/                   # Session management tests
 │   └── SessionManagementTest.java
+├── auth/                      # Authentication propagation tests
+│   ├── AjpAuthConfigurator.java
+│   └── AjpAuthPropagationTest.java
 ├── ssl/                       # SSL/TLS tests
 │   ├── SslCrlTest.java
 │   ├── SslFailoverTest.java
@@ -289,6 +292,9 @@ String result = worker.executeCli("/subsystem=modcluster:read-resource");
 - **SslFailoverTest** - SSL with failover scenarios
 - **SslWorkerAuthenticationTest** - Mutual SSL authentication
 
+### Authentication Tests
+- **AjpAuthPropagationTest** - REMOTE_USER propagation via AJP (Elytron EXTERNAL mechanism)
+
 ### Load Balancing Tests
 - **LoadBalancingGroupFailoverTest** - Load distribution and group failover
 - **LoadMetricsTest** - Load metrics calculation and custom metrics
@@ -325,6 +331,7 @@ This test suite aims for feature parity with `noe-tests/modcluster` (64 test fil
 | Advanced Failover | Yes | AdvancedFailoverTest, FailoverSettingsTest |
 | Load Balancing | Yes | LoadBalancingGroupFailoverTest, LoadMetricsTest |
 | SSL/TLS | Yes | SslCrlTest, SslFailoverTest, SslWorkerAuthenticationTest |
+| Authentication (AJP) | Yes | AjpAuthPropagationTest |
 | Dynamic Reconfiguration | Yes | DynamicReconfTest, SettingsTest |
 | Context Lifecycle | Yes | ContextLifecycleTest |
 | Session Management | Yes | SessionManagementTest |
@@ -338,7 +345,7 @@ This test suite aims for feature parity with `noe-tests/modcluster` (64 test fil
 
 | Area | noe-tests Reference |
 |------|-------------------|
-| AJP Protocol | ModClusterAJP.groovy |
+| AJP Protocol (beyond auth) | ModClusterAJP.groovy |
 | mod_proxy / mod_rewrite | ModProxyTest.groovy, ModRewriteTest.groovy |
 | Bug-specific regressions | JBCS*, JBQA* test files |
 
@@ -421,6 +428,7 @@ In practice, always provide a WildFly/EAP ZIP — the fallback images are not pu
 | `httpd.zip.path` | Both | auto-detect in `distributions/` | Path to JBCS httpd ZIP |
 | `httpd.connectors.zip.path` | Native | auto-detect alongside httpd ZIP | Path to JBCS connectors ZIP |
 | `httpd.modules.path` | Native | `httpdHome/modules` | Directory containing mod_proxy_cluster `.so` files |
+| `httpd.skip.mod_proxy_cluster` | Native | `false` | Skip mod_proxy_cluster modules (for direct AJP proxy tests) |
 | `httpd.version` | Docker | `2.4.66` | httpd version for Docker source build |
 | `balancer.httpd.image` | Docker | built automatically | Custom Docker image for httpd balancer |
 | `balancer.undertow.image` | Docker | built from WildFly ZIP | Custom Docker image for Undertow balancer |
