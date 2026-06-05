@@ -109,6 +109,41 @@ public class HttpClient {
     }
 
     /**
+     * Perform a GET request with a session cookie and custom read timeout.
+     * Use when the default 10-second read timeout is too short, such as during
+     * Infinispan state transfer when a new node joins or leaves the cluster.
+     *
+     * @param url the URL to request
+     * @param sessionCookie the session cookie value (e.g., "JSESSIONID=abc.worker1")
+     * @param timeout read timeout duration
+     * @param unit time unit for the timeout
+     * @return the HTTP response
+     * @throws IOException if the request fails
+     * @see #getWithSession(String, String)
+     */
+    public HttpResponse getWithSession(String url, String sessionCookie,
+                                       long timeout, TimeUnit unit) throws IOException {
+        OkHttpClient customClient = client.newBuilder()
+                .readTimeout(timeout, unit)
+                .build();
+
+        Request request = new Request.Builder()
+                .url(url)
+                .addHeader("Cookie", sessionCookie)
+                .addHeader("Connection", "close")
+                .build();
+
+        try (Response response = customClient.newCall(request).execute()) {
+            return new HttpResponse(
+                    response.code(),
+                    response.body() != null ? response.body().string() : "",
+                    extractCookies(response),
+                    extractHeaders(response)
+            );
+        }
+    }
+
+    /**
      * Perform an HTTPS GET request (ignoring certificate validation).
      */
     public HttpResponse getHttps(String url) throws IOException {
