@@ -40,6 +40,14 @@ public final class TestTimeouts {
     /** Timeout for failover completion after worker kill, including Infinispan rebalancing. */
     public static final Duration FAILOVER = durationSeconds("test.timeout.failover", 120);
 
+    /**
+     * HTTP read timeout for requests sent during Infinispan state transfer.
+     * When a node joins or leaves the cluster, JGroups view changes and Infinispan
+     * cache rebalancing can stall request processing on the remaining node for
+     * longer than the default 10-second read timeout, especially under CI load.
+     */
+    public static final Duration STATE_TRANSFER_REQUEST = durationSeconds("test.timeout.state.transfer.request", 30);
+
     // -- Helpers --
 
     private static Duration durationSeconds(String prop, int defaultSeconds) {
