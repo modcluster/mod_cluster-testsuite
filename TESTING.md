@@ -257,6 +257,17 @@ mvn test -Dtest=org.jboss.modcluster.test.ssl.*
 mvn test -Dtest=StickySessionTest,SSLTest,LoadBalancingGroupFailoverTest
 ```
 
+### httpd-Only Tests
+
+Some tests require the httpd balancer and are annotated with `@Tag("httpd")`.
+These are automatically excluded when running with `-Dbalancer.type=undertow`
+(the default) via the Maven undertow profile's `excludedGroups`.
+
+```bash
+# Run AJP protocol tests (requires httpd)
+mvn test -Dtest=ModClusterAjpTest -Dbalancer.type=httpd
+```
+
 ## Matrix Testing
 
 ### Both Balancers Sequentially

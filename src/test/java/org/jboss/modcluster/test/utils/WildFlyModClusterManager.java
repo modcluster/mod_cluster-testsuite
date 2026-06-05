@@ -210,6 +210,30 @@ public class WildFlyModClusterManager {
     }
 
     /**
+     * Set the Undertow listener that mod_cluster uses to register with the balancer.
+     *
+     * <p>The mod_cluster subsystem advertises one Undertow listener to the balancer
+     * via MCMP CONFIG messages. By default this is {@code "default"} (the HTTP listener
+     * on port 8080). Changing it to an AJP listener causes the worker to register with
+     * {@code Type: ajp} and the balancer to proxy traffic via {@code mod_proxy_ajp}
+     * instead of {@code mod_proxy_http}.</p>
+     *
+     * <p>The AJP listener must already exist on the worker
+     * (see {@link WildFlyUndertowManager#addAjpListener(String, String, String)}).
+     * This method triggers a server reload to apply the change.</p>
+     *
+     * @param listenerName the Undertow listener name (e.g., {@code "default"} for HTTP,
+     *                     or {@code "ajp"} for an AJP listener)
+     * @throws IOException if there's a connection error
+     * @throws OperationException if the management operation fails
+     * @see WildFlyUndertowManager#addAjpListener(String, String, String, int)
+     */
+    public void setListener(String listenerName) throws IOException, OperationException {
+        writeModClusterAttribute("listener", listenerName);
+        log.info("Set mod_cluster listener to '{}' on worker '{}'", listenerName, container.getName());
+    }
+
+    /**
      * Set the balancer name this worker registers under on the balancer.
      * Controls which load-balancing group the worker belongs to.
      * Requires a server reload to take effect.

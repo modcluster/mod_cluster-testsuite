@@ -18,6 +18,8 @@ This test suite uses:
 
 ```
 src/test/java/org/jboss/modcluster/test/
+├── ajp/                       # AJP protocol tests (httpd only)
+│   └── ModClusterAjpTest.java
 ├── apps/                      # Test application endpoints
 │   ├── ejb/                  # EJB beans, client, and builders
 │   └── ...                   # WebSocket, demo app, etc.
@@ -308,6 +310,9 @@ String result = worker.executeCli("/subsystem=modcluster:read-resource");
 ### EJB over HTTP Tests
 - **EjbViaHttpTest** - HTTP invoker endpoint registration, stateful EJB stickiness with failover, stateless EJB invocation
 
+### AJP Protocol Tests
+- **ModClusterAjpTest** - AJP data path through mod_cluster (httpd only)
+
 ### High Availability Tests
 - **HighAvailabilityTest** - Hot standby, multiple balancers
 - **SoakTest** - Long-running stability testing
@@ -333,14 +338,15 @@ This test suite aims for feature parity with `noe-tests/modcluster` (64 test fil
 | Initial Load | Yes | InitialLoadTest |
 | EJB over HTTP | Yes | EjbViaHttpTest |
 | Soak/Stress Testing | Yes | SoakTest |
+| AJP Protocol | Partial | ModClusterAjpTest |
 
 ### Not Yet Implemented
 
-| Area | noe-tests Reference |
-|------|-------------------|
-| AJP Protocol | ModClusterAJP.groovy |
-| mod_proxy / mod_rewrite | ModProxyTest.groovy, ModRewriteTest.groovy |
-| Bug-specific regressions | JBCS*, JBQA* test files |
+| Area | noe-tests Reference | Notes |
+|------|-------------------|-------|
+| AJP Secret Validation | ModClusterAJP.groovy | WildFly lacks native AJP secret support (Tomcat-only feature) |
+| mod_proxy / mod_rewrite | ModProxyTest.groovy, ModRewriteTest.groovy | |
+| Bug-specific regressions | JBCS*, JBQA* test files | |
 
 ## How It Works
 

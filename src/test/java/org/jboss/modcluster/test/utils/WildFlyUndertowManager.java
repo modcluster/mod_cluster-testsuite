@@ -125,18 +125,41 @@ public class WildFlyUndertowManager {
     /**
      * Add an AJP listener to a given Undertow server.
      *
-     * @param listenerName name of the AJP listener
-     * @param serverName name of the Undertow server to add the listener to
-     * @param socketBindingName name of the socket binding to use
+     * <p>Creates a socket binding on the given port (if it does not already exist),
+     * then adds an AJP listener bound to it on the specified server (if it does not
+     * already exist).</p>
+     *
+     * <p>Idempotent — safe to call multiple times; existing resources are skipped.
+     * Does not reload the server; call {@link WildFlyWorker#reload()} after all
+     * listeners have been added.</p>
+     *
+     * @param listenerName name of the AJP listener (e.g., {@code "ajp"})
+     * @param serverName the Undertow server to add the listener to (e.g., {@code "default-server"})
+     * @param socketBindingName name of the socket binding (e.g., {@code "ajp"})
+     * @param port the port for the socket binding (e.g., 8009)
      * @throws Exception if the management operation fails
+     * @see WildFlyModClusterManager#setListener(String)
      */
     public void addAjpListener(final String listenerName, final String serverName,
-                               final String socketBindingName) throws Exception {
-        OnlineManagementClient client = container.getManagementClient();
+                               final String socketBindingName, final int port) throws Exception {
+        Operations ops = container.getOperations();
 
-        client.apply(new AddUndertowListener.AjpBuilder(listenerName, serverName, socketBindingName)
-                .build());
-        log.info("Added AJP listener '{}' on server '{}' with socket binding '{}' on worker '{}'",
-                listenerName, serverName, socketBindingName, container.getName());
+        Address sbAddr = Address.of("socket-binding-group", "standard-sockets")
+                .and("socket-binding", socketBindingName);
+        if (!ops.exists(sbAddr)) {
+            addSocketBinding(socketBindingName, port);
+        }
+
+        Address listenerAddr = Address.subsystem("undertow")
+                .and("server", serverName)
+                .and("ajp-listener", listenerName);
+        if (!ops.exists(listenerAddr)) {
+            OnlineManagementClient client = container.getManagementClient();
+            client.apply(new AddUndertowListener.AjpBuilder(listenerName, serverName, socketBindingName)
+                    .build());
+        }
+
+        log.info("AJP listener '{}' on port {} on server '{}' added on worker '{}'",
+                listenerName, port, serverName, container.getName());
     }
 }

@@ -161,10 +161,9 @@ public class MultipleUndertowServerSupportTest {
             balancer2.startOnSameNetworkAs(balancer1, "balancer2");
             log.info("Second balancer started: {}", balancer2.getHttpUrl());
 
-            // Create second Undertow server + socket binding + AJP listener on worker
+            // Create second Undertow server + AJP listener on worker
             worker.undertow().addServer(secondServerName);
-            worker.undertow().addSocketBinding(socketBindingName, SECOND_LISTENER_PORT);
-            worker.undertow().addAjpListener(ajpListenerName, secondServerName, socketBindingName);
+            worker.undertow().addAjpListener(ajpListenerName, secondServerName, socketBindingName, SECOND_LISTENER_PORT);
 
             // Create outbound-socket-binding pointing to balancer2
             Operations ops = worker.getOperations();
@@ -310,13 +309,9 @@ public class MultipleUndertowServerSupportTest {
             // Create second Undertow server
             worker.undertow().addServer(secondServerName);
 
-            // Create socket bindings
-            worker.undertow().addSocketBinding(secondSocketName, secondSocketPort);
-            worker.undertow().addSocketBinding(thirdSocketName, thirdSocketPort);
-
             // Create AJP listeners on the second server
-            worker.undertow().addAjpListener(secondListenerName, secondServerName, secondSocketName);
-            worker.undertow().addAjpListener(thirdListenerName, secondServerName, thirdSocketName);
+            worker.undertow().addAjpListener(secondListenerName, secondServerName, secondSocketName, secondSocketPort);
+            worker.undertow().addAjpListener(thirdListenerName, secondServerName, thirdSocketName, thirdSocketPort);
 
             // Create two additional mod_cluster proxies
             ops.add(secondProxyAddr, Values.of("listener", secondListenerName))
