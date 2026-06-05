@@ -304,10 +304,28 @@
         <profile>
             <id>undertow</id>
             <activation>
-                <activeByDefault>true</activeByDefault>
+                <property>
+                    <name>balancer.type</name>
+                    <value>undertow</value>
+                </property>
             </activation>
             <properties>
                 <balancer.type>undertow</balancer.type>
+                <test.excluded.groups.balancer>httpd</test.excluded.groups.balancer>
+            </properties>
+        </profile>
+
+        <!-- Default balancer when -Dbalancer.type is not set -->
+        <profile>
+            <id>undertow-default</id>
+            <activation>
+                <property>
+                    <name>!balancer.type</name>
+                </property>
+            </activation>
+            <properties>
+                <balancer.type>undertow</balancer.type>
+                <test.excluded.groups.balancer>httpd</test.excluded.groups.balancer>
             </properties>
         </profile>
 

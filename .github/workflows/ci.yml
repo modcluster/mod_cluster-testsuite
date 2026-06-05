@@ -7,7 +7,7 @@ on:
 
 env:
   WILDFLY_VERSION: 39.0.1.Final
-  TEST_CLASS: StickySessionTest,SslFailoverTest,SslCrlTest
+  TEST_CLASS: StickySessionTest,SslFailoverTest,SslCrlTest,ModClusterAjpTest
   MOD_PROXY_CLUSTER_REPO: https://github.com/modcluster/mod_proxy_cluster.git
 
 jobs:
@@ -44,12 +44,12 @@ jobs:
       - name: Run tests (Docker)
         if: runner.os != 'Windows'
         shell: bash
-        run: mvn -B test -Dtest=${{ env.TEST_CLASS }} -DexcludedGroups=none -Dbalancer.type=${{ matrix.balancer }} -Dwildfly.version=${{ env.WILDFLY_VERSION }}
+        run: mvn -B test -Dtest=${{ env.TEST_CLASS }} -Dbalancer.type=${{ matrix.balancer }} -Dwildfly.version=${{ env.WILDFLY_VERSION }}
 
       - name: Run tests (Native)
         if: runner.os == 'Windows'
         shell: bash
-        run: mvn -B test -Pnative -Dtest=${{ env.TEST_CLASS }} -DexcludedGroups=none -Dbalancer.type=${{ matrix.balancer }} -Dwildfly.version=${{ env.WILDFLY_VERSION }}
+        run: mvn -B test -Pnative -Dtest=${{ env.TEST_CLASS }} -Dbalancer.type=${{ matrix.balancer }} -Dwildfly.version=${{ env.WILDFLY_VERSION }}
 
       - name: Publish test results
         uses: mikepenz/action-junit-report@v6
@@ -101,7 +101,6 @@ jobs:
         run: |
           mvn -B test -Pnative \
             -Dtest=${{ env.TEST_CLASS }} \
-            -DexcludedGroups=none \
             -Dbalancer.type=httpd \
             -Dhttpd.home=/usr \
             -Dhttpd.modules.path=${{ github.workspace }}/target/mod_proxy_cluster/native/build/modules \

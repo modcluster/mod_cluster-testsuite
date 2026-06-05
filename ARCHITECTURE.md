@@ -211,7 +211,14 @@ DockerImageName.parse("quay.io/modcluster/mod_cluster-httpd:latest")
 
 **To be implemented**
 
-### 8. Integration (`org.jboss.modcluster.test.integration`)
+### 8. AJP Protocol (`org.jboss.modcluster.test.ajp`)
+- AJP data path through mod_cluster
+- Worker registration with AJP scheme
+- End-to-end request proxying via mod_proxy_ajp
+
+**Example**: `ModClusterAjpTest.java` (httpd only — `@Tag("httpd")`)
+
+### 9. Integration (`org.jboss.modcluster.test.integration`)
 - EJB over HTTP
 - WebSockets
 - Full application scenarios
@@ -267,6 +274,7 @@ Jenkins Pipeline
 | LoadBalancingGroupFailoverTest | ✓ | ✓ |
 | SSLTest | ✓ | ✓ |
 | DynamicReconfTest | ✓ | ✓ |
+| ModClusterAjpTest | — | ✓ |
 
 ## Configuration Points
 

@@ -110,6 +110,7 @@ public class MyModClusterTest {
 
 Choose the appropriate package for your test:
 
+* `/ajp/` — AJP protocol data path tests (httpd only, `@Tag("httpd")`)
 * `/cli/` — Management and configuration via CLI/Creaper
 * `/failover/` — Failover scenarios, session migration, worker failure
 * `/loadbalancing/` — Load distribution, metrics, algorithms
