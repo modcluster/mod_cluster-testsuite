@@ -1017,7 +1017,7 @@ class NativeHttpdBalancer extends Balancer {
         }
 
         if (httpdHome != null) {
-            Path mDir = modulesPath != null ? modulesPath : httpdHome.resolve("modules");
+            Path mDir = modulesPath != null ? modulesPath : serverRoot().resolve("modules");
             for (String module : List.of("mod_manager.so", "mod_proxy_cluster.so",
                     "mod_advertise.so", "mod_lbmethod_cluster.so")) {
                 Path p = mDir.resolve(module);
