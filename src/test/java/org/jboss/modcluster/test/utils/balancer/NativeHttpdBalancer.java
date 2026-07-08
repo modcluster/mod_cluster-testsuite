@@ -831,7 +831,7 @@ class NativeHttpdBalancer extends Balancer {
     private void patchHttpdConf() throws IOException {
         String content = Files.readString(confFile);
 
-        content = content.replaceAll("(?m)^Listen 80$", "#Listen 80");
+        content = content.replaceAll("(?m)^(Listen\\s+(?:\\S+:)?80)\\s*$", "#$1");
         content = content.replaceAll(
                 "(?m)^(LoadModule proxy_balancer_module)",
                 "#$1");
