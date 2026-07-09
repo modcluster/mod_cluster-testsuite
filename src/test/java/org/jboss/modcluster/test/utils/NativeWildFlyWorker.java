@@ -358,6 +358,22 @@ public class NativeWildFlyWorker extends WildFlyWorker {
     }
 
     @Override
+    public void restartServer() throws Exception {
+        log.info("Restarting worker '{}' via process stop+start", getName());
+        stop();
+
+        List<String> command = buildStartCommand();
+        Map<String, String> env = buildEnvironment();
+
+        processManager = new NativeProcessManager(getName(), command, serverHome, env);
+        processManager.start();
+        processManager.waitForStartup(STARTUP_LOG_PATTERN, STARTUP_TIMEOUT);
+
+        deployment().deployDemoApp();
+        log.info("Worker '{}' restarted successfully", getName());
+    }
+
+    @Override
     public void kill() throws Exception {
         closeManagementClient();
         if (processManager != null) {
