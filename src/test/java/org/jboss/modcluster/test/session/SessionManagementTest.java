@@ -9,7 +9,6 @@ import org.jboss.modcluster.test.utils.ContinuousRequestRunner;
 import org.jboss.modcluster.test.utils.HttpClient;
 import org.jboss.modcluster.test.utils.HttpClient.HttpResponse;
 import org.jboss.modcluster.test.utils.UndertowSessionCookieConfigurator;
-import org.jboss.modcluster.test.utils.TestMode;
 import org.jboss.modcluster.test.utils.TestTimeouts;
 import org.jboss.modcluster.test.utils.WildFlyWorker;
 import org.jboss.modcluster.test.apps.SessionTimeoutAppBuilder;
@@ -247,8 +246,11 @@ public class SessionManagementTest {
     }
 
     /**
-     * Verifies that session timeout is NOT hit after context stop despite configured 1-minute timeout.
-     * Passes if continuous requests for 65 seconds succeed after stop-context without session expiration.
+     * Verifies that session timeout is preserved across failover triggered by STOP-APP.
+     * Deploys a distributable app with 1-minute session timeout, establishes a session,
+     * then stops the context on the session's worker via MCMP. The session should fail over
+     * to the other worker and remain alive for the full 65-second test window (exceeding the
+     * 1-minute timeout boundary), proving the timeout was not reset during replication.
      */
     @Test
     public void testSessionTimeoutPreservedAfterStopContext(TestCluster cluster, HttpClient httpClient) throws Exception {
@@ -268,46 +270,53 @@ public class SessionManagementTest {
         // Wait for both workers to register on the balancer
         httpClient.waitForWorkerRegistration(url, 2, TestTimeouts.CLUSTER_FORMATION);
 
-        // Establish session
+        // Establish session — balancer picks the worker
         final HttpResponse initial = httpClient.get(url);
         final String sessionCookie = initial.getCookie("JSESSIONID");
+        final String sessionWorkerName = extractJvmRoute(sessionCookie);
+        final String otherWorkerName = sessionWorkerName.equals("worker1") ? "worker2" : "worker1";
+        final WildFlyWorker sessionWorker = cluster.getWorkerByName(sessionWorkerName);
 
-        log.info("Session established: {}", sessionCookie);
+        log.info("Session established: {} (on {})", sessionCookie, sessionWorkerName);
 
         // Continuous requests for 65 seconds
         final ContinuousRequestRunner runner = new ContinuousRequestRunner(httpClient, url, sessionCookie);
         final Future<ContinuousRequestRunner.RequestResult> resultFuture = runner.startAsync(
             Duration.ofSeconds(65), Duration.ofMillis(1000));
 
-        // After 5 seconds warmup, stop context on worker1
+        // After 5 seconds warmup, stop context on the worker that holds the session
         Thread.sleep(5000);
-        log.info("Stopping context /timeout-test on worker1");
-        cluster.getWorker1().modCluster().stopContext("/timeout-test", "default-host");
+        log.info("Stopping context /timeout-test on {}", sessionWorkerName);
+        sessionWorker.modCluster().stopContext("/timeout-test", "default-host");
 
         // Wait for continuous requests to complete
         final ContinuousRequestRunner.RequestResult result = resultFuture.get(90, TimeUnit.SECONDS);
 
-        log.info("Continuous requests completed: {} total, {} failed",
-                 result.getTotalCount(), result.getFailedCount());
+        log.info("Continuous requests completed: {} total, {} failed, firstWorker={}, lastWorker={}",
+                 result.getTotalCount(), result.getFailedCount(), result.getFirstWorker(), result.getLastWorker());
 
-        // Verify
         softly.assertThat(result.getFailedCount())
             .as("Few requests may fail during stop-context")
             .isLessThan(10);
 
-        int minExpected = TestMode.isWindows() ? 50 : 60;
-        softly.assertThat(result.getTotalCount())
-            .as("Should complete at least %d of ~65 requests", minExpected)
-            .isGreaterThan(minExpected);
+        softly.assertThat(result.getFirstWorker())
+            .as("First request should be served by the session worker")
+            .isEqualTo(sessionWorkerName);
+
+        softly.assertThat(result.getLastWorker())
+            .as("Last request should be served by the other worker (failover after stop-context, session still alive)")
+            .isEqualTo(otherWorkerName);
 
         softly.assertThat(result.getSessionIdChanges())
-            .as("Session ID should remain constant or change at most once during failover")
-            .isLessThanOrEqualTo(1);
+            .as("Session ID must not change during graceful stop-context failover")
+            .isEqualTo(0);
     }
 
     /**
-     * Verifies that session timeout is NOT hit after context disable despite configured 1-minute timeout.
-     * Passes if continuous requests for 65 seconds succeed after disable-context without session expiration.
+     * Verifies that session timeout is preserved after DISABLE-APP on the session's worker.
+     * Unlike STOP-APP, DISABLE-APP does not force failover — existing sticky sessions continue
+     * on the same worker. The session should remain alive for the full 65-second test window
+     * with zero failures and no session ID changes.
      */
     @Test
     public void testSessionTimeoutPreservedAfterDisableContext(TestCluster cluster, HttpClient httpClient) throws Exception {
@@ -327,41 +336,37 @@ public class SessionManagementTest {
         // Wait for both workers to register on the balancer
         httpClient.waitForWorkerRegistration(url, 2, TestTimeouts.CLUSTER_FORMATION);
 
-        // Establish session
+        // Establish session — balancer picks the worker
         final HttpResponse initial = httpClient.get(url);
         final String sessionCookie = initial.getCookie("JSESSIONID");
+        final String sessionWorkerName = extractJvmRoute(sessionCookie);
+        final WildFlyWorker sessionWorker = cluster.getWorkerByName(sessionWorkerName);
 
-        log.info("Session established: {}", sessionCookie);
+        log.info("Session established: {} (on {})", sessionCookie, sessionWorkerName);
 
         // Continuous requests for 65 seconds
         final ContinuousRequestRunner runner = new ContinuousRequestRunner(httpClient, url, sessionCookie);
         final Future<ContinuousRequestRunner.RequestResult> resultFuture = runner.startAsync(
             Duration.ofSeconds(65), Duration.ofMillis(1000));
 
-        // After 5 seconds warmup, disable context on worker1
+        // After 5 seconds warmup, disable context on the worker that holds the session
         Thread.sleep(5000);
-        log.info("Disabling context /timeout-test on worker1");
-        cluster.getWorker1().modCluster().disableContext("/timeout-test", "default-host");
+        log.info("Disabling context /timeout-test on {}", sessionWorkerName);
+        sessionWorker.modCluster().disableContext("/timeout-test", "default-host");
 
         // Wait for continuous requests to complete
         final ContinuousRequestRunner.RequestResult result = resultFuture.get(90, TimeUnit.SECONDS);
 
-        log.info("Continuous requests completed: {} total, {} failed",
-                 result.getTotalCount(), result.getFailedCount());
+        log.info("Continuous requests completed: {} total, {} failed, firstWorker={}, lastWorker={}",
+                 result.getTotalCount(), result.getFailedCount(), result.getFirstWorker(), result.getLastWorker());
 
-        // Verify
         softly.assertThat(result.getFailedCount())
-            .as("Few requests may fail during disable-context")
-            .isLessThan(10);
-
-        int minExpected = TestMode.isWindows() ? 50 : 60;
-        softly.assertThat(result.getTotalCount())
-            .as("Should complete at least %d of ~65 requests", minExpected)
-            .isGreaterThan(minExpected);
+            .as("No requests should fail — disable-context keeps the session on the original worker")
+            .isEqualTo(0);
 
         softly.assertThat(result.getSessionIdChanges())
-            .as("Session ID should remain constant or change at most once during failover")
-            .isLessThanOrEqualTo(1);
+            .as("Session ID must not change — disable-context keeps the session on the original worker")
+            .isEqualTo(0);
     }
 
     /**
@@ -487,7 +492,7 @@ public class SessionManagementTest {
         final HttpResponse initial = initialRef.get();
         final String cookie = initial.getCookie(effectiveCookieName);
         final String sessionId = extractSessionIdOnly(cookie);
-        final String worker = extractWorkerFromResponse(initial);
+        final String worker = initial.getWorkerName();
 
         log.info("Session {} established on {} using cookie name '{}'", sessionId, worker, effectiveCookieName);
 
@@ -503,7 +508,7 @@ public class SessionManagementTest {
                 softly.assertThat(response.getStatusCode())
                     .as("Request %d should succeed", i)
                     .isEqualTo(200);
-                softly.assertThat(extractWorkerFromResponse(response))
+                softly.assertThat(response.getWorkerName())
                     .as("Request %d should stick to worker %s", i, worker)
                     .isEqualTo(worker);
             } catch (IOException e) {
@@ -548,7 +553,7 @@ public class SessionManagementTest {
                     .isEqualTo(200);
 
                 if (response.getStatusCode() == 200) {
-                    final String currentWorker = extractWorkerFromResponse(response);
+                    final String currentWorker = response.getWorkerName();
                     if (failoverWorker == null) {
                         failoverWorker = currentWorker;
                         softly.assertThat(currentWorker)
@@ -656,7 +661,7 @@ public class SessionManagementTest {
 
                         final String sessionId = extractSessionIdOnly(cookie);
                         final String route = extractJvmRoute(cookie);
-                        final String worker = extractWorkerFromResponse(response);
+                        final String worker = response.getWorkerName();
 
                         initialRoute.set(route);
                         initialWorker.set(worker);
@@ -699,7 +704,7 @@ public class SessionManagementTest {
                                         .as("Cycle %d request %d should succeed", currentCycle, i)
                                         .isEqualTo(200);
 
-                                    final String reqWorker = extractWorkerFromResponse(req);
+                                    final String reqWorker = req.getWorkerName();
                                     assertThat(reqWorker)
                                         .as("[JBEAP-6683] Cycle %d request %d: Should stick to worker %s", currentCycle, i, worker)
                                         .isEqualTo(worker);
@@ -798,33 +803,4 @@ public class SessionManagementTest {
         return dotIndex > 0 ? cookie.substring(dotIndex + 1) : null;
     }
 
-    /**
-     * Extracts worker name from HTTP response body.
-     * Parses the {@code <strong>Worker:</strong>} tag from the demo app JSP output
-     * to get the actual serving worker's {@code jboss.node.name}. This avoids false
-     * matches from the session ID's JVM route (e.g., "abc.worker2" in the Session ID
-     * field when worker1 is actually serving the request after failover).
-     *
-     * @param response HTTP response
-     * @return Worker name (e.g., "worker1")
-     */
-    private String extractWorkerFromResponse(final HttpResponse response) {
-        final String body = response.getBody();
-        // Parse from JSP output: <strong>Worker:</strong> worker1
-        if (body.contains("<strong>Worker:</strong>")) {
-            int startIdx = body.indexOf("<strong>Worker:</strong>") + "<strong>Worker:</strong>".length();
-            int endIdx = body.indexOf("</p>", startIdx);
-            if (endIdx > startIdx) {
-                return body.substring(startIdx, endIdx).trim();
-            }
-        }
-        // Fallback: simple contains check
-        if (body.contains("worker1")) {
-            return "worker1";
-        }
-        if (body.contains("worker2")) {
-            return "worker2";
-        }
-        return "unknown";
-    }
 }
