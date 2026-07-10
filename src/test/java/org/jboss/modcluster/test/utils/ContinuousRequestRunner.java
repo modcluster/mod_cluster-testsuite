@@ -81,6 +81,11 @@ public class ContinuousRequestRunner {
                                 }
                                 lastSessionId = currentSessionId;
                             }
+
+                            final String worker = response.getWorkerName();
+                            if (worker != null) {
+                                result.recordWorker(worker);
+                            }
                         } else {
                             result.incrementFailed();
                             log.debug("Request failed with status: {}", response.getStatusCode());
@@ -136,6 +141,8 @@ public class ContinuousRequestRunner {
         private final AtomicInteger successCount = new AtomicInteger(0);
         private final AtomicInteger failedCount = new AtomicInteger(0);
         private final AtomicInteger sessionIdChanges = new AtomicInteger(0);
+        private volatile String firstWorker;
+        private volatile String lastWorker;
 
         void incrementTotal() {
             totalCount.incrementAndGet();
@@ -153,6 +160,13 @@ public class ContinuousRequestRunner {
             sessionIdChanges.incrementAndGet();
         }
 
+        void recordWorker(final String worker) {
+            if (firstWorker == null) {
+                firstWorker = worker;
+            }
+            lastWorker = worker;
+        }
+
         public int getTotalCount() {
             return totalCount.get();
         }
@@ -167,6 +181,14 @@ public class ContinuousRequestRunner {
 
         public int getSessionIdChanges() {
             return sessionIdChanges.get();
+        }
+
+        public String getFirstWorker() {
+            return firstWorker;
+        }
+
+        public String getLastWorker() {
+            return lastWorker;
         }
     }
 }

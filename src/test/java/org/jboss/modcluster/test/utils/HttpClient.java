@@ -413,7 +413,7 @@ public class HttpClient {
                 Map<String, String> headers = new HashMap<>();
                 headers.put("Connection", "close");
                 HttpResponse response = get(url, headers);
-                String worker = extractWorkerName(response.getBody());
+                String worker = response.getWorkerName();
 
                 workerHits.merge(worker, 1, Integer::sum);
                 successfulRequests++;
@@ -430,28 +430,6 @@ public class HttpClient {
                 successfulRequests, failedRequests, requestCount);
 
         return workerHits;
-    }
-
-    /**
-     * Extract worker name from response body.
-     * Looks for pattern: <strong>Worker:</strong> worker1
-     */
-    private String extractWorkerName(String body) {
-        // Extract from JSP output: <strong>Worker:</strong> worker1
-        if (body.contains("<strong>Worker:</strong>")) {
-            int startIdx = body.indexOf("<strong>Worker:</strong>") + "<strong>Worker:</strong>".length();
-            int endIdx = body.indexOf("</p>", startIdx);
-            if (endIdx > startIdx) {
-                return body.substring(startIdx, endIdx).trim(); // Returns "worker1" or "worker2"
-            }
-        }
-
-        // Fallback: simple contains check
-        if (body.contains("worker1")) return "worker1";
-        if (body.contains("worker2")) return "worker2";
-        if (body.contains("worker3")) return "worker3";
-        if (body.contains("worker4")) return "worker4";
-        return "unknown";
     }
 
     private Map<String, String> extractCookies(Response response) {
@@ -551,6 +529,25 @@ public class HttpClient {
 
         public String getHeader(String name) {
             return headers.get(name);
+        }
+
+        /**
+         * Extracts the worker name ({@code jboss.node.name}) from the response body.
+         * Parses the {@code <strong>Worker:</strong> workerN} tag emitted by the
+         * demo and timeout-test JSP applications.
+         *
+         * @return worker name (e.g. "worker1"), or {@code null} if the body does not
+         *         contain the expected tag
+         */
+        public String getWorkerName() {
+            if (body != null && body.contains("<strong>Worker:</strong>")) {
+                int startIdx = body.indexOf("<strong>Worker:</strong>") + "<strong>Worker:</strong>".length();
+                int endIdx = body.indexOf("</p>", startIdx);
+                if (endIdx > startIdx) {
+                    return body.substring(startIdx, endIdx).trim();
+                }
+            }
+            return null;
         }
     }
 }
