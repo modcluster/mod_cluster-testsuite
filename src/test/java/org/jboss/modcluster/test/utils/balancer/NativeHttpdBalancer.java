@@ -820,6 +820,9 @@ class NativeHttpdBalancer extends Balancer {
                 "(?m)^ServerRoot\\s+.*$",
                 "ServerRoot \"" + absoluteServerRoot + "\"");
 
+        content = content.replaceAll("(?m)^(User\\s+)", "#$1");
+        content = content.replaceAll("(?m)^(Group\\s+)", "#$1");
+
         content = content.replaceAll("(?m)^(Listen\\s+(?:\\S+:)?80)\\s*$", "#$1");
         content = content.replaceAll(
                 "(?m)^(LoadModule proxy_balancer_module)",
