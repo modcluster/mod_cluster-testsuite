@@ -690,26 +690,8 @@ class NativeHttpdBalancer extends Balancer {
         log.info("Extracting {} to {}", zipPath.getFileName(), instanceDir);
         Files.createDirectories(instanceDir);
 
-        try (ZipFile zf = new ZipFile(zipPath.toFile())) {
-            Enumeration<? extends ZipEntry> entries = zf.entries();
-            while (entries.hasMoreElements()) {
-                ZipEntry entry = entries.nextElement();
-                Path entryPath = instanceDir.resolve(entry.getName()).normalize();
-                if (!entryPath.startsWith(instanceDir)) {
-                    throw new IOException("ZIP entry outside target: " + entry.getName());
-                }
-                if (entry.isDirectory()) {
-                    Files.createDirectories(entryPath);
-                } else {
-                    Files.createDirectories(entryPath.getParent());
-                    try (InputStream is = zf.getInputStream(entry)) {
-                        Files.copy(is, entryPath, StandardCopyOption.REPLACE_EXISTING);
-                    }
-                }
-            }
-        }
+        extractZip(zipPath, instanceDir);
 
-        // Make httpd binary executable
         Path httpd = findHttpdBinaryOrNull(home);
         if (httpd != null) {
             httpd.toFile().setExecutable(true);
@@ -950,6 +932,44 @@ class NativeHttpdBalancer extends Balancer {
     }
 
     private void extractOverlayZip(Path zipPath, Path targetDir) throws IOException {
+        extractZip(zipPath, targetDir);
+    }
+
+    private void extractZip(Path zipPath, Path targetDir) throws IOException {
+        Files.createDirectories(targetDir);
+        List<String> command = List.of("unzip", "-o", "-q",
+                zipPath.toAbsolutePath().toString(),
+                "-d", targetDir.toAbsolutePath().toString());
+        try {
+            Process process = new ProcessBuilder(command)
+                    .redirectErrorStream(true)
+                    .start();
+            String output = new String(process.getInputStream().readAllBytes());
+            int exitCode = process.waitFor();
+            if (exitCode != 0) {
+                throw new IOException(String.join(" ", command) + " failed (exit " + exitCode + "): " + output);
+            }
+        } catch (IOException e) {
+            if (!isCommandNotFound(e)) {
+                throw e;
+            }
+            log.warn("Native unzip not available, falling back to Java extraction "
+                    + "(symlinks will not be preserved)");
+            extractWithJavaZip(zipPath, targetDir);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new IOException("Interrupted during: " + String.join(" ", command), e);
+        }
+    }
+
+    private boolean isCommandNotFound(IOException e) {
+        String msg = e.getMessage();
+        return msg != null && (msg.contains("No such file or directory")
+                || msg.contains("cannot find the file")
+                || msg.contains("The system cannot find"));
+    }
+
+    private void extractWithJavaZip(Path zipPath, Path targetDir) throws IOException {
         try (ZipFile zf = new ZipFile(zipPath.toFile())) {
             Enumeration<? extends ZipEntry> entries = zf.entries();
             while (entries.hasMoreElements()) {
