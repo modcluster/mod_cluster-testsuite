@@ -1008,12 +1008,13 @@ class NativeHttpdBalancer extends Balancer {
      */
     private void removeConflictingConfigs() throws IOException {
         Path confD = serverRoot().resolve("conf.d");
-        if (!Files.isDirectory(confD)) return;
-
-        Path modClusterNative = confD.resolve("mod_cluster-native.conf");
-        if (Files.isRegularFile(modClusterNative)) {
-            Files.delete(modClusterNative);
-            log.info("Removed conflicting {}", modClusterNative.getFileName());
+        if (Files.isDirectory(confD)) {
+            try (Stream<Path> stream = Files.list(confD)) {
+                for (Path conf : stream.filter(p -> p.toString().endsWith(".conf")).toList()) {
+                    Files.delete(conf);
+                    log.info("Removed JBCS-shipped {}", conf.getFileName());
+                }
+            }
         }
 
         // Remove stale SSL configs from prior test classes to avoid duplicate
@@ -1028,12 +1029,8 @@ class NativeHttpdBalancer extends Balancer {
             }
         }
 
-        // Restore original mod_proxy_cluster.conf (may have been overwritten by SSL tests)
-        try {
-            copyModProxyClusterConf();
-        } catch (IOException e) {
-            log.warn("Failed to restore mod_proxy_cluster.conf: {}", e.getMessage());
-        }
+        // Deploy our mod_proxy_cluster.conf
+        copyModProxyClusterConf();
     }
 
     private void logHttpdDiagnostics() {
