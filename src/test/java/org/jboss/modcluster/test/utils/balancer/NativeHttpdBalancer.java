@@ -822,6 +822,7 @@ class NativeHttpdBalancer extends Balancer {
 
         content = content.replaceAll("(?m)^(User\\s+)", "#$1");
         content = content.replaceAll("(?m)^(Group\\s+)", "#$1");
+        content = content.replaceAll("(?m)^(DocumentRoot\\s+)", "#$1");
 
         content = content.replaceAll("(?m)^(Listen\\s+(?:\\S+:)?80)\\s*$", "#$1");
         content = content.replaceAll(
