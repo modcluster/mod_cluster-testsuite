@@ -25,6 +25,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Matcher;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
@@ -812,6 +813,12 @@ class NativeHttpdBalancer extends Balancer {
      */
     private void patchHttpdConf() throws IOException {
         String content = Files.readString(confFile);
+
+        String absoluteServerRoot = Matcher.quoteReplacement(
+                serverRoot().toAbsolutePath().toString());
+        content = content.replaceAll(
+                "(?m)^ServerRoot\\s+.*$",
+                "ServerRoot \"" + absoluteServerRoot + "\"");
 
         content = content.replaceAll("(?m)^(Listen\\s+(?:\\S+:)?80)\\s*$", "#$1");
         content = content.replaceAll(
