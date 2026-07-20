@@ -25,7 +25,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
-import java.util.regex.Matcher;
 import java.util.stream.Stream;
 import java.util.zip.ZipEntry;
 import java.util.zip.ZipFile;
@@ -761,22 +760,26 @@ class NativeHttpdBalancer extends Balancer {
     }
 
     /**
-     * Run the JBCS postinstall script if httpd.conf doesn't exist yet.
-     * The JBCS distribution ships {@code .in} template files (e.g. {@code httpd.conf.in})
-     * and a postinstall script that processes them into actual config files.
+     * Run the JBCS postinstall script if it hasn't been run yet.
+     * The script replaces path placeholders ({@code @@@HTTPD_HOME@@@} on Linux,
+     * {@code @installroot@} on Windows) with the actual installation path,
+     * generates SSL certificates, and patches various config files.
+     *
+     * <p>The script location and working directory vary across platforms:
+     * Linux places {@code .postinstall} at the httpd root and runs from there;
+     * Windows places {@code postinstall.httpd.bat} in {@code etc/} and runs from there.
      */
     private void runPostinstallIfNeeded(Path home) throws IOException {
-        if (findHttpdConf(home) != null) return;
-
-        Path etcDir = home.resolve("etc");
-        String scriptName = TestMode.isWindows() ? "postinstall.httpd.bat" : ".postinstall.httpd";
-        Path script = etcDir.resolve(scriptName);
-
-        if (!Files.isRegularFile(script)) {
-            script = etcDir.resolve(TestMode.isWindows() ? "postinstall.bat" : ".postinstall");
+        Path script = findPostinstallScript(home);
+        if (script == null) {
+            log.warn("No postinstall script found under {}; httpd.conf must be configured manually", home);
+            return;
         }
-        if (!Files.isRegularFile(script)) {
-            log.warn("No postinstall script found in {}; httpd.conf must be generated manually", etcDir);
+
+        Path scriptDir = script.getParent();
+        Path doneMarker = scriptDir.resolve(".postinstall.httpd.done");
+        if (Files.isRegularFile(doneMarker)) {
+            log.info("Postinstall already executed ({}), skipping", doneMarker);
             return;
         }
 
@@ -786,7 +789,7 @@ class NativeHttpdBalancer extends Balancer {
                 : List.of("sh", script.getFileName().toString());
 
         ProcessBuilder pb = new ProcessBuilder(command)
-                .directory(etcDir.toFile())
+                .directory(scriptDir.toFile())
                 .redirectErrorStream(true);
         Process process = pb.start();
         String output = new String(process.getInputStream().readAllBytes());
@@ -794,35 +797,64 @@ class NativeHttpdBalancer extends Balancer {
         try {
             int exitCode = process.waitFor();
             if (exitCode != 0 && exitCode != 17) {
-                log.error("Postinstall script failed (exit {}): {}", exitCode, output);
-                throw new RuntimeException("Postinstall script failed with exit code " + exitCode);
-            }
-            if (exitCode == 17) {
+                log.warn("Postinstall script exited with code {} (non-root expected): {}",
+                        exitCode, output);
+            } else if (exitCode == 17) {
                 log.info("Postinstall was already executed");
+            } else {
+                log.info("Postinstall completed successfully");
             }
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new IOException("Interrupted waiting for postinstall script", e);
         }
-        log.info("Postinstall completed successfully");
     }
 
     /**
-     * Patch httpd.conf: set Listen 8080, disable mod_proxy_balancer, include our config.
-     * Also patches conf.modules.d/ fragments if proxy_balancer is loaded there.
+     * Search for a postinstall script under the httpd home directory.
+     * Linux JBCS ZIPs typically place it at the httpd root ({@code .postinstall}),
+     * but the location may vary across distributions.
+     */
+    private Path findPostinstallScript(Path home) throws IOException {
+        String[] linuxNames = {".postinstall.httpd", ".postinstall"};
+        String[] windowsNames = {"postinstall.httpd.bat", "postinstall.bat"};
+        String[] names = TestMode.isWindows() ? windowsNames : linuxNames;
+
+        Path[] searchDirs = {home, home.resolve("etc")};
+        for (Path dir : searchDirs) {
+            for (String name : names) {
+                Path candidate = dir.resolve(name);
+                if (Files.isRegularFile(candidate)) {
+                    return candidate;
+                }
+            }
+        }
+
+        try (Stream<Path> stream = Files.walk(home, 3)) {
+            return stream
+                    .filter(Files::isRegularFile)
+                    .filter(p -> {
+                        String fileName = p.getFileName().toString();
+                        for (String name : names) {
+                            if (fileName.equals(name)) return true;
+                        }
+                        return false;
+                    })
+                    .findFirst()
+                    .orElse(null);
+        }
+    }
+
+    /**
+     * Patch httpd.conf for test use: comment out User/Group (we don't run as root),
+     * switch Listen to 8080, and disable mod_proxy_balancer (conflicts with mod_proxy_cluster).
+     * ServerRoot and DocumentRoot are already set by the postinstall script.
      */
     private void patchHttpdConf() throws IOException {
         String content = Files.readString(confFile);
 
-        String absoluteServerRoot = Matcher.quoteReplacement(
-                serverRoot().toAbsolutePath().toString());
-        content = content.replaceAll(
-                "(?m)^ServerRoot\\s+.*$",
-                "ServerRoot \"" + absoluteServerRoot + "\"");
-
         content = content.replaceAll("(?m)^(User\\s+)", "#$1");
         content = content.replaceAll("(?m)^(Group\\s+)", "#$1");
-        content = content.replaceAll("(?m)^(DocumentRoot\\s+)", "#$1");
 
         content = content.replaceAll("(?m)^(Listen\\s+(?:\\S+:)?80)\\s*$", "#$1");
         content = content.replaceAll(
