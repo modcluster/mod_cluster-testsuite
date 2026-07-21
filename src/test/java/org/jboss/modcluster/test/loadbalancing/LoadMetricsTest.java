@@ -412,7 +412,8 @@ public class LoadMetricsTest {
         // Trigger memory allocation — servlet stores in static field and returns immediately
         log.info("Allocating 500MB on worker1...");
         String allocUrl = balancerUrl + "load/memory?megabytes=500";
-        HttpClient.HttpResponse allocResponse = httpClient.get(allocUrl);
+        HttpClient.HttpResponse allocResponse = httpClient.getWithTimeout(allocUrl,
+                TestTimeouts.HEAVY_REQUEST.toSeconds(), TimeUnit.SECONDS);
         log.info("Allocation response (status={}): {}", allocResponse.getStatusCode(), allocResponse.getBody().trim());
 
         softly.assertThat(allocResponse.getStatusCode())
