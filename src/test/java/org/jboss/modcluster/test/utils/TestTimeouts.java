@@ -53,7 +53,7 @@ public final class TestTimeouts {
      * large heap allocations. Under CI load, GC pressure during a 500MB allocation
      * can stall the servlet response well beyond the default 10-second read timeout.
      */
-    public static final Duration HEAVY_REQUEST = durationSeconds("test.timeout.heavy.request", 30);
+    public static final Duration HEAVY_REQUEST = durationSeconds("test.timeout.heavy.request", 60);
 
     // -- Helpers --
 
