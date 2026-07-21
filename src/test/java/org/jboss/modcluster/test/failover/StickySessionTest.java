@@ -90,6 +90,11 @@ public class StickySessionTest {
 
         String balancerUrl = cluster.getBalancer().getHttpUrl() + "/" + DEMO_APP + "/";
 
+        // Wait for both workers to register and report real load factors.
+        // With initial-load=0, a newly registered worker may not get a JVM route
+        // appended to JSESSIONID until the balancer receives a STATUS message.
+        httpClient.waitForWorkerRegistration(balancerUrl, 2, TestTimeouts.CLUSTER_FORMATION);
+
         // Simulate 5 different clients with different sessions
         for (int client = 1; client <= 5; client++) {
             HttpResponse initialResponse = httpClient.get(balancerUrl);
