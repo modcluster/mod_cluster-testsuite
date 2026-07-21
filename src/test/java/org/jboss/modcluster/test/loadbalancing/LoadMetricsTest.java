@@ -21,8 +21,11 @@ import org.wildfly.extras.creaper.core.online.operations.ReadResourceOption;
 
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicReference;
 
+import static java.time.Duration.ofSeconds;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.awaitility.Awaitility.await;
 import static org.jboss.modcluster.test.utils.WildFlyDeploymentManager.DEMO_APP;
 
 /**
@@ -41,6 +44,7 @@ public class LoadMetricsTest {
      * The heap test also allocates 500MB directly, which would OOM a 512MB JVM.
      */
     private static final String JAVA_OPTS = "-Xms64m -Xmx2g";
+    private static final int MAX_WORKER_PERCENT = 70;
 
     @InjectSoftAssertions
     private SoftAssertions softly;
@@ -332,34 +336,26 @@ public class LoadMetricsTest {
 
         String balancerUrl = cluster.getBalancer().getHttpUrl() + "/" + DEMO_APP + "/";
 
-        // Wait for both workers to register and receive traffic
-        httpClient.waitForWorkerRegistration(balancerUrl, 2, TestTimeouts.CLUSTER_FORMATION);
+        // Wait for both workers to register and load to stabilize.
+        // A newly registered worker starts with initial-load=0 and only gets a real load factor
+        // after the next status-interval tick (10s), so we poll until distribution is balanced.
+        AtomicReference<Map<String, Integer>> lastDistribution = new AtomicReference<>();
+        await().atMost(TestTimeouts.CLUSTER_FORMATION).pollInterval(ofSeconds(3))
+                .untilAsserted(() -> {
+                    Map<String, Integer> dist = httpClient.testLoadDistribution(balancerUrl, 100);
+                    lastDistribution.set(dist);
+                    assertThat(dist)
+                            .as("Both workers should receive requests via load-based routing")
+                            .containsKeys("worker1", "worker2");
+                    int maxRequests = Math.max(
+                            dist.getOrDefault("worker1", 0),
+                            dist.getOrDefault("worker2", 0));
+                    assertThat(maxRequests)
+                            .as("Distribution should be relatively balanced (got %s)", dist)
+                            .isLessThan(MAX_WORKER_PERCENT);
+                });
 
-        // Generate traffic to observe load-based distribution
-        Map<String, Integer> distribution = httpClient.testLoadDistribution(balancerUrl, 100);
-        log.info("Load distribution with dynamic load metrics: {}", distribution);
-
-        int worker1Requests = distribution.getOrDefault("worker1", 0);
-        int worker2Requests = distribution.getOrDefault("worker2", 0);
-
-        // Both workers should receive requests
-        softly.assertThat(distribution)
-                .as("Both workers should receive requests via load-based routing")
-                .containsKeys("worker1", "worker2");
-
-        // Total should match request count
-        softly.assertThat(worker1Requests + worker2Requests)
-                .as("Total requests should match expected count")
-                .isEqualTo(100);
-
-        // Distribution should be relatively balanced with default built-in metrics
-        // (Allow up to 70/30 split as acceptable variance)
-        int maxRequests = Math.max(worker1Requests, worker2Requests);
-        softly.assertThat(maxRequests)
-                .as("Distribution should be relatively balanced (no worker gets >70%)")
-                .isLessThan(70);
-
-        log.info("Load-based routing verified: worker1={}, worker2={}", worker1Requests, worker2Requests);
+        log.info("Load distribution with dynamic load metrics: {}", lastDistribution.get());
     }
 
     /**
