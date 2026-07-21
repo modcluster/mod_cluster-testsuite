@@ -218,12 +218,11 @@ public class WebSocketsTest {
 
         final String wsUrl = getWebSocketUrl(cluster);
 
-        // Wait for apps to register
-        await().atMost(TestTimeouts.CLUSTER_FORMATION).pollInterval(ofSeconds(2))
-                .untilAsserted(() -> {
-                    HttpResponse resp = httpClient.get(cluster.getBalancer().getHttpUrl() + "/ws-echo/");
-                    assertThat(resp.getStatusCode()).isEqualTo(200);
-                });
+        // Wait for both workers' ws-echo contexts to register on the balancer.
+        // A single HTTP 200 only confirms one worker; the WebSocket upgrade can
+        // be routed to the other worker whose context isn't registered yet.
+        String wsEchoUrl = cluster.getBalancer().getHttpUrl() + "/ws-echo/";
+        httpClient.waitForWorkerRegistration(wsEchoUrl, 2, TestTimeouts.CLUSTER_FORMATION);
 
         final OkHttpClient wsClient = new OkHttpClient.Builder()
                 .readTimeout(10, TimeUnit.SECONDS)
