@@ -13,6 +13,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.jboss.modcluster.test.utils.WildFlyDeploymentManager.DEMO_APP;
@@ -26,13 +27,14 @@ import static java.time.Duration.ofSeconds;
 public class LoadBalancingGroupFailoverTest {
 
     private static final Logger log = LoggerFactory.getLogger(LoadBalancingGroupFailoverTest.class);
+    private static final double MIN_BALANCE_RATIO = 0.55;
 
     @InjectSoftAssertions
     private SoftAssertions softly;
 
     /**
      * Verifies that load is distributed across multiple workers by the balancer.
-     * Passes if both workers receive requests and the distribution ratio is at least 0.55.
+     * Passes if both workers receive requests and the distribution ratio is at least {@link #MIN_BALANCE_RATIO}.
      */
     @Test
     public void testLoadDistributionAcrossWorkers(TestCluster cluster, HttpClient httpClient) throws Exception {
@@ -40,32 +42,26 @@ public class LoadBalancingGroupFailoverTest {
 
         String balancerUrl = cluster.getBalancer().getHttpUrl() + "/" + DEMO_APP + "/";
 
-        // Wait for both workers to register and receive traffic.
-        // httpd's mod_proxy_cluster needs time to process CONFIG messages from all workers.
+        // Wait for both workers to register and load to stabilize.
+        // A newly registered worker starts with initial-load=0 and only gets a real load factor
+        // after the next status-interval tick (10s), so we poll until distribution is balanced.
+        AtomicReference<Map<String, Integer>> lastDistribution = new AtomicReference<>();
         await().atMost(TestTimeouts.CLUSTER_FORMATION).pollInterval(ofSeconds(3))
                 .untilAsserted(() -> {
-                    Map<String, Integer> dist = httpClient.testLoadDistribution(balancerUrl, 20);
+                    Map<String, Integer> dist = httpClient.testLoadDistribution(balancerUrl, 100);
+                    lastDistribution.set(dist);
                     assertThat(dist)
                             .as("Both workers should receive requests")
                             .containsKeys("worker1", "worker2");
+                    int w1 = dist.getOrDefault("worker1", 0);
+                    int w2 = dist.getOrDefault("worker2", 0);
+                    double ratio = (double) Math.min(w1, w2) / Math.max(w1, w2);
+                    assertThat(ratio)
+                            .as("Load should be relatively balanced (got %s)", dist)
+                            .isGreaterThanOrEqualTo(MIN_BALANCE_RATIO);
                 });
 
-        // Make 100 requests to test load balancing
-        // Connection reuse is disabled in testLoadDistribution for accurate distribution
-        Map<String, Integer> distribution = httpClient.testLoadDistribution(balancerUrl, 100);
-
-        log.info("Load distribution: {}", distribution);
-
-        // Verify relatively even distribution (within 30% of each other)
-        // Since connection reuse is disabled, we should get good distribution
-        int worker1Hits = distribution.getOrDefault("worker1", 0);
-        int worker2Hits = distribution.getOrDefault("worker2", 0);
-
-        double ratio = (double) Math.min(worker1Hits, worker2Hits) / Math.max(worker1Hits, worker2Hits);
-
-        softly.assertThat(ratio)
-                .as("Load should be relatively balanced (ratio >= 0.55)")
-                .isGreaterThanOrEqualTo(0.55);
+        log.info("Load distribution: {}", lastDistribution.get());
     }
 
     /**
