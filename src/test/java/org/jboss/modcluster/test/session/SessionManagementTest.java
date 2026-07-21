@@ -643,22 +643,25 @@ public class SessionManagementTest {
                 final Future<?> requestTask = executor.submit(() -> {
                     try {
                         // Initial request — establishes session on worker1.
-                        // Retry with extended timeout: after stopping worker2 in a previous cycle,
-                        // Infinispan state transfer may still be in progress on worker1.
-                        HttpResponse response = null;
-                        for (int attempt = 0; attempt < 5; attempt++) {
-                            try {
-                                response = httpClient.getWithTimeout(
-                                        balancerUrl, stateTransferTimeout, TimeUnit.SECONDS);
-                                if (response.getStatusCode() == 200) break;
-                            } catch (IOException e) {
-                                log.warn("Cycle {} initial request attempt {}/5 failed: {}",
-                                         currentCycle, attempt + 1, e.getMessage());
-                                if (attempt == 4) throw e;
-                            }
-                        }
-                        final String cookie = response.getCookie("JSESSIONID");
+                        // After stopping worker2 in a previous cycle, Infinispan state
+                        // transfer may delay worker1's ability to issue a JSESSIONID
+                        // with a JVM route. Poll until we get a valid session cookie.
+                        final AtomicReference<HttpResponse> responseRef = new AtomicReference<>();
+                        final AtomicReference<String> cookieRef = new AtomicReference<>();
+                        await().atMost(TestTimeouts.STATE_TRANSFER_REQUEST)
+                                .pollInterval(ofSeconds(2))
+                                .untilAsserted(() -> {
+                                    HttpResponse resp = httpClient.getWithTimeout(
+                                            balancerUrl, stateTransferTimeout, TimeUnit.SECONDS);
+                                    assertThat(resp.getStatusCode()).isEqualTo(200);
+                                    String c = resp.getCookie("JSESSIONID");
+                                    assertThat(c).as("JSESSIONID cookie must be present").isNotNull();
+                                    responseRef.set(resp);
+                                    cookieRef.set(c);
+                                });
 
+                        final HttpResponse response = responseRef.get();
+                        final String cookie = cookieRef.get();
                         final String sessionId = extractSessionIdOnly(cookie);
                         final String route = extractJvmRoute(cookie);
                         final String worker = response.getWorkerName();
