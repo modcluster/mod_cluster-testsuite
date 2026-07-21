@@ -391,7 +391,9 @@ public class HttpClient {
             .untilAsserted(() -> {
                 Map<String, Integer> dist = testLoadDistribution(url, expectedWorkerCount * 5);
                 lastDistribution.set(dist);
-                assertThat(dist).hasSize(expectedWorkerCount);
+                assertThat(dist.keySet().stream().filter(k -> k != null).count())
+                        .as("Expected %d distinct workers but got: %s", expectedWorkerCount, dist)
+                        .isEqualTo(expectedWorkerCount);
             });
         return lastDistribution.get();
     }
@@ -415,9 +417,15 @@ public class HttpClient {
                 HttpResponse response = get(url, headers);
                 String worker = response.getWorkerName();
 
-                workerHits.merge(worker, 1, Integer::sum);
-                successfulRequests++;
-                log.debug("Request {} -> Worker: {}", i + 1, worker);
+                if (worker != null) {
+                    workerHits.merge(worker, 1, Integer::sum);
+                    successfulRequests++;
+                    log.debug("Request {} -> Worker: {}", i + 1, worker);
+                } else {
+                    failedRequests++;
+                    log.debug("Request {} returned no worker name (status {}), routing failure",
+                            i + 1, response.getStatusCode());
+                }
             } catch (IOException e) {
                 // Handle connection failures (e.g., when worker is being stopped/unregistered)
                 failedRequests++;
