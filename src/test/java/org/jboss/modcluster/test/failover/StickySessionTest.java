@@ -90,11 +90,31 @@ public class StickySessionTest {
 
         String balancerUrl = cluster.getBalancer().getHttpUrl() + "/" + DEMO_APP + "/";
 
+        // Wait for both workers to register and report real load factors.
+        // With initial-load=0, a newly registered worker may not get a JVM route
+        // appended to JSESSIONID until the balancer receives a STATUS message.
+        httpClient.waitForWorkerRegistration(balancerUrl, 2, TestTimeouts.CLUSTER_FORMATION);
+
         // Simulate 5 different clients with different sessions
         for (int client = 1; client <= 5; client++) {
-            HttpResponse initialResponse = httpClient.get(balancerUrl);
-            String sessionCookie = initialResponse.getCookie("JSESSIONID");
-            String assignedWorker = extractWorkerFromSessionId(sessionCookie);
+            // Retry until we get a JSESSIONID with a JVM route suffix.
+            // Even after waitForWorkerRegistration, a transient initial-load=0
+            // window can produce a route-less cookie.
+            final int clientNum = client;
+            AtomicReference<String> cookieRef = new AtomicReference<>();
+            AtomicReference<String> workerRef = new AtomicReference<>();
+            await().atMost(TestTimeouts.CLUSTER_FORMATION).pollInterval(ofSeconds(1))
+                    .untilAsserted(() -> {
+                        HttpResponse resp = httpClient.get(balancerUrl);
+                        String cookie = resp.getCookie("JSESSIONID");
+                        assertThat(cookie).as("Client %d JSESSIONID must be present", clientNum).isNotNull();
+                        String worker = extractWorkerFromSessionId(cookie);
+                        assertThat(worker).as("Client %d JVM route must be present", clientNum).isNotEqualTo("unknown");
+                        cookieRef.set(cookie);
+                        workerRef.set(worker);
+                    });
+            String sessionCookie = cookieRef.get();
+            String assignedWorker = workerRef.get();
 
             log.info("Client {} assigned to worker: {}", client, assignedWorker);
 

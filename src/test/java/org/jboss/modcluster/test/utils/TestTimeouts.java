@@ -48,6 +48,13 @@ public final class TestTimeouts {
      */
     public static final Duration STATE_TRANSFER_REQUEST = durationSeconds("test.timeout.state.transfer.request", 30);
 
+    /**
+     * HTTP read timeout for requests that trigger heavy server-side work such as
+     * large heap allocations. Under CI load, GC pressure during a 500MB allocation
+     * can stall the servlet response well beyond the default 10-second read timeout.
+     */
+    public static final Duration HEAVY_REQUEST = durationSeconds("test.timeout.heavy.request", 60);
+
     // -- Helpers --
 
     private static Duration durationSeconds(String prop, int defaultSeconds) {
