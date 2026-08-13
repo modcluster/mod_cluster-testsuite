@@ -106,8 +106,6 @@ public class EjbViaHttpTest {
      * EJB-over-HTTP invocations, so it cannot maintain session affinity for stateful beans.
      * The Undertow mod_cluster filter handles EJB session stickiness internally.
      */
-    @Disabled("WFLY-21930: WildFly regression wildfly/wildfly@d3b318b sets JSESSIONID cookie path " +
-              "without leading '/', breaking EJB-over-HTTP session stickiness")
     @Tag("undertow")
     @Test
     public void testStatefulEjbStickiness(TestCluster cluster) throws Exception {
