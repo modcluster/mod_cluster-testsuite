@@ -344,7 +344,7 @@ This test suite aims for feature parity with `noe-tests/modcluster` (64 test fil
 
 | Area | noe-tests Reference | Notes |
 |------|-------------------|-------|
-| AJP Secret Validation | ModClusterAJP.groovy | WildFly lacks native AJP secret support (Tomcat-only feature) |
+| AJP Secret Validation | ModClusterAJP.groovy | Covered in tests-native-connectors (direct proxy control needed) |
 | mod_proxy / mod_rewrite | ModProxyTest.groovy, ModRewriteTest.groovy | |
 | Bug-specific regressions | JBCS*, JBQA* test files | |
 

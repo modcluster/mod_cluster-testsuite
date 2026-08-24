@@ -35,13 +35,24 @@ import static org.jboss.modcluster.test.utils.WildFlyDeploymentManager.DEMO_APP;
  * AJP backend connections (the {@code @Tag("httpd")} annotation causes this test
  * to be skipped when {@code -Dbalancer.type=undertow}).</p>
  *
+ * <h3>AJP secret enforcement</h3>
+ * <p>Since UNDERTOW-2791, Undertow enforces
+ * {@code -Dio.undertow.ajp.REQUIRE_AJP_SECRET=true} by default. The secret
+ * check in {@code AjpReadListener} runs before the packet-type dispatch, so
+ * CPING health checks (which carry no secret attribute) are rejected with 403
+ * before {@code handleCPing()} is reached. Since {@code mod_proxy_ajp} sends
+ * CPING before every request by default, this breaks all AJP traffic through
+ * mod_cluster. The test disables enforcement via
+ * {@code io.undertow.ajp.REQUIRE_AJP_SECRET=false} as a workaround.</p>
+ *
  * <h3>Relationship to noe-tests</h3>
  * <p>Ported from noe-tests {@code ModClusterAJP.groovy}. The original test also
  * validates AJP secret matching ({@code AJPSecret} directive vs. Tomcat's
- * {@code secretRequired}/{@code secret} connector attributes). Those tests are
- * omitted here because WildFly's Undertow AJP listener does not support native
- * secret validation &mdash; the equivalent WildFly mechanism uses Undertow
- * expression filters, which is a different code path.</p>
+ * {@code secretRequired}/{@code secret} connector attributes). Undertow now
+ * supports AJP secret validation (UNDERTOW-2791), but the secret tests cannot
+ * be implemented here until the CPING bug described above is fixed &mdash; the
+ * worker and balancer ({@code AJPSecret} in {@code mod_manager}) both support
+ * the secret, but CPING breaks the connection before any request is sent.</p>
  *
  * @see org.jboss.modcluster.test.utils.WildFlyUndertowManager#addAjpListener(String, String, String, int)
  * @see org.jboss.modcluster.test.utils.WildFlyModClusterManager#setListener(String)

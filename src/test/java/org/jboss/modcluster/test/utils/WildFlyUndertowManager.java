@@ -8,6 +8,7 @@ import org.wildfly.extras.creaper.commands.undertow.AddUndertowListener;
 import org.wildfly.extras.creaper.core.online.OnlineManagementClient;
 import org.wildfly.extras.creaper.core.online.operations.Address;
 import org.wildfly.extras.creaper.core.online.operations.Operations;
+import org.wildfly.extras.creaper.core.online.operations.Values;
 
 /**
  * Manages Undertow subsystem configuration for WildFly containers.
@@ -143,6 +144,16 @@ public class WildFlyUndertowManager {
     public void addAjpListener(final String listenerName, final String serverName,
                                final String socketBindingName, final int port) throws Exception {
         Operations ops = container.getOperations();
+
+        // UNDERTOW-2791 enforces REQUIRE_AJP_SECRET=true by default. The secret
+        // check in AjpReadListener runs before the packet-type dispatch, so CPING
+        // health checks (which carry no secret) are rejected — breaking
+        // mod_proxy_cluster's connection pool. Disable until fixed.
+        Address requireSecretProp = Address.of("system-property", "io.undertow.ajp.REQUIRE_AJP_SECRET");
+        if (!ops.exists(requireSecretProp)) {
+            ops.add(requireSecretProp, Values.of("value", "false")).assertSuccess();
+            container.reload();
+        }
 
         Address sbAddr = Address.of("socket-binding-group", "standard-sockets")
                 .and("socket-binding", socketBindingName);
